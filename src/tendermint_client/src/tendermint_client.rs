@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use tendermint::chain::Id as TmChainId;
 
 // use tendermint_light_client_verifier::types::{TrustedBlockState, UntrustedBlockState};
 
@@ -49,6 +48,7 @@ use ibc::timestamp::{Timestamp, ZERO_DURATION};
 use ibc::Height;
 
 use crate::client_state::ClientState as TmClientState;
+use crate::utils::IntoResult;
 use hashbrown::HashMap;
 
 pub struct TendermintClient {
@@ -270,11 +270,15 @@ impl TendermintClient {
             .into());
         }
 
-        self.check_header_and_validator_set(header_1, &consensus_state_1, now)?;
-        self.check_header_and_validator_set(header_2, &consensus_state_2, now)?;
+        self.client_state
+            .check_header_and_validator_set(header_1, &consensus_state_1, now)?;
+        self.client_state
+            .check_header_and_validator_set(header_2, &consensus_state_2, now)?;
 
-        self.verify_header_commit_against_trusted(header_1, &consensus_state_1)?;
-        self.verify_header_commit_against_trusted(header_2, &consensus_state_2)?;
+        self.client_state
+            .verify_header_commit_against_trusted(header_1, &consensus_state_1)?;
+        self.client_state
+            .verify_header_commit_against_trusted(header_2, &consensus_state_2)?;
 
         // Update client state
         // self.frozen_height = Some(Height::new(0, 1).unwrap());
@@ -353,111 +357,6 @@ impl TendermintClient {
             }
         }
         Ok(None)
-    }
-
-    fn header_as_untrusted_block_state(h: &Header) -> UntrustedBlockState<'_> {
-        UntrustedBlockState {
-            signed_header: &h.signed_header,
-            validators: &h.validator_set,
-            next_validators: None,
-        }
-    }
-
-    fn header_as_trusted_block_state<'a>(
-        h: &'a Header,
-        consensus_state: &TmConsensusState,
-        chain_id: &'a TmChainId,
-    ) -> Result<TrustedBlockState<'a>, Error> {
-        Ok(TrustedBlockState {
-            chain_id,
-            header_time: consensus_state.timestamp,
-            height: h.trusted_height.revision_height().try_into().map_err(|_| {
-                Error::InvalidHeaderHeight {
-                    height: h.trusted_height.revision_height(),
-                }
-            })?,
-            next_validators: &h.trusted_validator_set,
-            next_validators_hash: consensus_state.next_validators_hash,
-        })
-    }
-
-    fn check_header_validator_set(
-        trusted_consensus_state: &TmConsensusState,
-        header: &Header,
-    ) -> Result<(), ClientError> {
-        let trusted_val_hash = header.trusted_validator_set.hash();
-
-        if trusted_consensus_state.next_validators_hash != trusted_val_hash {
-            return Err(Error::MisbehaviourTrustedValidatorHashMismatch {
-                trusted_validator_set: header.trusted_validator_set.validators().clone(),
-                next_validators_hash: trusted_consensus_state.next_validators_hash,
-                trusted_val_hash,
-            }
-            .into());
-        }
-
-        Ok(())
-    }
-
-    fn check_header_and_validator_set(
-        &self,
-        header: &Header,
-        consensus_state: &TmConsensusState,
-        current_timestamp: Timestamp,
-    ) -> Result<(), ClientError> {
-        Self::check_header_validator_set(consensus_state, header)?;
-
-        let duration_since_consensus_state = current_timestamp
-            .duration_since(&consensus_state.timestamp())
-            .ok_or_else(|| ClientError::InvalidConsensusStateTimestamp {
-                time1: consensus_state.timestamp(),
-                time2: current_timestamp,
-            })?;
-
-        if duration_since_consensus_state >= self.client_state.trusting_period {
-            return Err(Error::ConsensusStateTimestampGteTrustingPeriod {
-                duration_since_consensus_state,
-                trusting_period: self.client_state.trusting_period,
-            }
-            .into());
-        }
-
-        let untrusted_state = Self::header_as_untrusted_block_state(&header);
-        let chain_id = self.client_state.chain_id.clone().into();
-        let trusted_state =
-            Self::header_as_trusted_block_state(&header, consensus_state, &chain_id)?;
-        let options = self.client_state.as_light_client_options()?;
-
-        self.client_state
-            .verifier
-            .validate_against_trusted(
-                &untrusted_state,
-                &trusted_state,
-                &options,
-                current_timestamp.into_tm_time().unwrap(),
-            )
-            .into_result()?;
-
-        Ok(())
-    }
-
-    fn verify_header_commit_against_trusted(
-        &self,
-        header: &Header,
-        consensus_state: &TmConsensusState,
-    ) -> Result<(), ClientError> {
-        let untrusted_state = Self::header_as_untrusted_block_state(header);
-        let chain_id = self.client_state.chain_id.clone().into();
-        let trusted_state =
-            Self::header_as_trusted_block_state(header, consensus_state, &chain_id)?;
-        let options = self.client_state.as_light_client_options()?;
-
-        self.client_state
-            .verifier
-            .verify_commit_against_trusted(&untrusted_state, &trusted_state, &options)
-            .into_result()?;
-
-        Ok(())
     }
 
     fn verify_upgrade_client(
@@ -602,19 +501,5 @@ impl TendermintClient {
             .insert(self.client_state.latest_height, new_consensus_state);
 
         Ok(())
-    }
-}
-
-pub trait IntoResult<T, E> {
-    fn into_result(self) -> Result<T, E>;
-}
-
-impl IntoResult<(), Error> for Verdict {
-    fn into_result(self) -> Result<(), Error> {
-        match self {
-            Verdict::Success => Ok(()),
-            Verdict::NotEnoughTrust(reason) => Err(Error::NotEnoughTrustedValsSigned { reason }),
-            Verdict::Invalid(detail) => Err(Error::VerificationError { detail }),
-        }
     }
 }

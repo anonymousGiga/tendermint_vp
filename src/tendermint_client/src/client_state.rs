@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use crate::utils::IntoResult;
 use core::convert::{TryFrom, TryInto};
 use core::time::Duration;
 
@@ -11,6 +12,7 @@ use ibc_proto::ibc::lightclients::tendermint::v1::{
 use ibc_proto::protobuf::Protobuf;
 use prost::Message;
 use tendermint::chain::id::MAX_LENGTH as MaxChainIdLen;
+use tendermint::chain::Id as TmChainId;
 use tendermint::trust_threshold::TrustThresholdFraction as TendermintTrustThresholdFraction;
 use tendermint_light_client_verifier::options::Options;
 use tendermint_light_client_verifier::types::{TrustedBlockState, UntrustedBlockState};
@@ -278,6 +280,91 @@ impl ClientState {
             }
             .into());
         }
+
+        Ok(())
+    }
+
+    fn header_as_untrusted_block_state(h: &Header) -> UntrustedBlockState<'_> {
+        UntrustedBlockState {
+            signed_header: &h.signed_header,
+            validators: &h.validator_set,
+            next_validators: None,
+        }
+    }
+
+    fn header_as_trusted_block_state<'a>(
+        h: &'a Header,
+        consensus_state: &TmConsensusState,
+        chain_id: &'a TmChainId,
+    ) -> Result<TrustedBlockState<'a>, Error> {
+        Ok(TrustedBlockState {
+            chain_id,
+            header_time: consensus_state.timestamp,
+            height: h.trusted_height.revision_height().try_into().map_err(|_| {
+                Error::InvalidHeaderHeight {
+                    height: h.trusted_height.revision_height(),
+                }
+            })?,
+            next_validators: &h.trusted_validator_set,
+            next_validators_hash: consensus_state.next_validators_hash,
+        })
+    }
+
+    pub fn check_header_and_validator_set(
+        &self,
+        header: &Header,
+        consensus_state: &TmConsensusState,
+        current_timestamp: Timestamp,
+    ) -> Result<(), ClientError> {
+        Self::check_header_validator_set(consensus_state, header)?;
+
+        let duration_since_consensus_state = current_timestamp
+            .duration_since(&consensus_state.timestamp())
+            .ok_or_else(|| ClientError::InvalidConsensusStateTimestamp {
+                time1: consensus_state.timestamp(),
+                time2: current_timestamp,
+            })?;
+
+        if duration_since_consensus_state >= self.trusting_period {
+            return Err(Error::ConsensusStateTimestampGteTrustingPeriod {
+                duration_since_consensus_state,
+                trusting_period: self.trusting_period,
+            }
+            .into());
+        }
+
+        let untrusted_state = Self::header_as_untrusted_block_state(&header);
+        let chain_id = self.chain_id.clone().into();
+        let trusted_state =
+            Self::header_as_trusted_block_state(&header, consensus_state, &chain_id)?;
+        let options = self.as_light_client_options()?;
+
+        self.verifier
+            .validate_against_trusted(
+                &untrusted_state,
+                &trusted_state,
+                &options,
+                current_timestamp.into_tm_time().unwrap(),
+            )
+            .into_result()?;
+
+        Ok(())
+    }
+
+    pub fn verify_header_commit_against_trusted(
+        &self,
+        header: &Header,
+        consensus_state: &TmConsensusState,
+    ) -> Result<(), ClientError> {
+        let untrusted_state = Self::header_as_untrusted_block_state(header);
+        let chain_id = self.chain_id.clone().into();
+        let trusted_state =
+            Self::header_as_trusted_block_state(header, consensus_state, &chain_id)?;
+        let options = self.as_light_client_options()?;
+
+        self.verifier
+            .verify_commit_against_trusted(&untrusted_state, &trusted_state, &options)
+            .into_result()?;
 
         Ok(())
     }
