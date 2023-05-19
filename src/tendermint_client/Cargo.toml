@@ -1,0 +1,40 @@
+[package]
+name = "tendermint_client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+candid = "0.8.0"
+ic-cdk = "0.7.0"
+ic-cdk-macros = "0.6.0"
+
+hashbrown = "0.13.2"
+serde_json = { version = "1.0", default-features = false, features = ["alloc"]}
+serde = {version = "1.0", default-features = false, features = ["derive"]}
+prost = { version = "0.11", default-features = false }
+bytes = { version = "1.2.1", default-features = false }
+
+tendermint-light-client-verifier = { version = "0.28.0", default-features = false }
+tendermint = { version = "0.28.0", default-features = false, features = ["clock"]}
+ibc = { version = "0.28.0", default-features = false, features = ["serde"]}
+ibc-proto = { version = "0.25.0", default-features = false }
+
+[dev-dependencies]
+tendermint-testgen = { version = "0.28.0", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "serde/std",
+    "serde_json/std",
+    "bytes/std",
+    "prost/std",
+    "ibc/serde", 
+    "ibc/serde_json", 
+    "ibc/std",
+    "ibc-proto/std",
+    ]
+
+mocks = ["ibc/mocks"]

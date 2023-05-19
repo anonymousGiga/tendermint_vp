@@ -1,4 +1,5 @@
 [workspace]
 members = [
     "src/tendermint_vp_backend",
+    "src/tendermint_client",
 ]
