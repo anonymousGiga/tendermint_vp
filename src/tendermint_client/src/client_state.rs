@@ -284,32 +284,6 @@ impl ClientState {
         Ok(())
     }
 
-    fn header_as_untrusted_block_state(h: &Header) -> UntrustedBlockState<'_> {
-        UntrustedBlockState {
-            signed_header: &h.signed_header,
-            validators: &h.validator_set,
-            next_validators: None,
-        }
-    }
-
-    fn header_as_trusted_block_state<'a>(
-        h: &'a Header,
-        consensus_state: &TmConsensusState,
-        chain_id: &'a TmChainId,
-    ) -> Result<TrustedBlockState<'a>, Error> {
-        Ok(TrustedBlockState {
-            chain_id,
-            header_time: consensus_state.timestamp,
-            height: h.trusted_height.revision_height().try_into().map_err(|_| {
-                Error::InvalidHeaderHeight {
-                    height: h.trusted_height.revision_height(),
-                }
-            })?,
-            next_validators: &h.trusted_validator_set,
-            next_validators_hash: consensus_state.next_validators_hash,
-        })
-    }
-
     pub fn check_header_and_validator_set(
         &self,
         header: &Header,
@@ -333,10 +307,9 @@ impl ClientState {
             .into());
         }
 
-        let untrusted_state = Self::header_as_untrusted_block_state(&header);
+        let untrusted_state = header_as_untrusted_block_state(&header);
         let chain_id = self.chain_id.clone().into();
-        let trusted_state =
-            Self::header_as_trusted_block_state(&header, consensus_state, &chain_id)?;
+        let trusted_state = header_as_trusted_block_state(&header, consensus_state, &chain_id)?;
         let options = self.as_light_client_options()?;
 
         self.verifier
@@ -356,10 +329,9 @@ impl ClientState {
         header: &Header,
         consensus_state: &TmConsensusState,
     ) -> Result<(), ClientError> {
-        let untrusted_state = Self::header_as_untrusted_block_state(header);
+        let untrusted_state = header_as_untrusted_block_state(header);
         let chain_id = self.chain_id.clone().into();
-        let trusted_state =
-            Self::header_as_trusted_block_state(header, consensus_state, &chain_id)?;
+        let trusted_state = header_as_trusted_block_state(header, consensus_state, &chain_id)?;
         let options = self.as_light_client_options()?;
 
         self.verifier
@@ -367,6 +339,64 @@ impl ClientState {
             .into_result()?;
 
         Ok(())
+    }
+
+    pub fn verify_connection_state(
+        &self,
+        height: Height,
+        prefix: &CommitmentPrefix,
+        proof: &CommitmentProofBytes,
+        root: &CommitmentRoot,
+        connection_id: &ConnectionId,
+        expected_connection_end: &ConnectionEnd,
+    ) -> Result<(), ClientError> {
+        self.verify_height(height)?;
+
+        let path = ConnectionsPath(connection_id.clone());
+        let value = expected_connection_end
+            .encode_vec()
+            .map_err(ClientError::InvalidConnectionEnd)?;
+        verify_membership(self, prefix, proof, root, path, value)
+    }
+
+    pub fn verify_client_full_state(
+        &self,
+        height: Height,
+        prefix: &CommitmentPrefix,
+        proof: &CommitmentProofBytes,
+        root: &CommitmentRoot,
+        client_id: &ClientId,
+        expected_client_state: Any,
+    ) -> Result<(), ClientError> {
+        self.verify_height(height)?;
+
+        let path = ClientStatePath(client_id.clone());
+        let value = expected_client_state.encode_to_vec();
+        verify_membership(self, prefix, proof, root, path, value)
+    }
+
+    pub fn verify_client_consensus_state(
+        &self,
+        height: Height,
+        prefix: &CommitmentPrefix,
+        proof: &CommitmentProofBytes,
+        root: &CommitmentRoot,
+        client_id: &ClientId,
+        consensus_height: Height,
+        expected_consensus_state: &dyn ConsensusState,
+    ) -> Result<(), ClientError> {
+        self.verify_height(height)?;
+
+        let path = ClientConsensusStatePath {
+            client_id: client_id.clone(),
+            epoch: consensus_height.revision_number(),
+            height: consensus_height.revision_height(),
+        };
+        let value = expected_consensus_state
+            .encode_vec()
+            .map_err(ClientError::InvalidAnyConsensusState)?;
+
+        verify_membership(self, prefix, proof, root, path, value)
     }
 }
 
@@ -396,6 +426,73 @@ impl ClientState {
         self.frozen_height = None;
         self.max_clock_drift = ZERO_DURATION;
     }
+}
+
+fn header_as_untrusted_block_state(h: &Header) -> UntrustedBlockState<'_> {
+    UntrustedBlockState {
+        signed_header: &h.signed_header,
+        validators: &h.validator_set,
+        next_validators: None,
+    }
+}
+
+fn header_as_trusted_block_state<'a>(
+    h: &'a Header,
+    consensus_state: &TmConsensusState,
+    chain_id: &'a TmChainId,
+) -> Result<TrustedBlockState<'a>, Error> {
+    Ok(TrustedBlockState {
+        chain_id,
+        header_time: consensus_state.timestamp,
+        height: h.trusted_height.revision_height().try_into().map_err(|_| {
+            Error::InvalidHeaderHeight {
+                height: h.trusted_height.revision_height(),
+            }
+        })?,
+        next_validators: &h.trusted_validator_set,
+        next_validators_hash: consensus_state.next_validators_hash,
+    })
+}
+
+fn verify_membership(
+    client_state: &ClientState,
+    prefix: &CommitmentPrefix,
+    proof: &CommitmentProofBytes,
+    root: &CommitmentRoot,
+    path: impl Into<Path>,
+    value: Vec<u8>,
+) -> Result<(), ClientError> {
+    let merkle_path = apply_prefix(prefix, vec![path.into().to_string()]);
+    let merkle_proof: MerkleProof = RawMerkleProof::try_from(proof.clone())
+        .map_err(ClientError::InvalidCommitmentProof)?
+        .into();
+
+    merkle_proof
+        .verify_membership(
+            &client_state.proof_specs,
+            root.clone().into(),
+            merkle_path,
+            value,
+            0,
+        )
+        .map_err(ClientError::Ics23Verification)
+}
+
+fn verify_non_membership(
+    client_state: &ClientState,
+    prefix: &CommitmentPrefix,
+    proof: &CommitmentProofBytes,
+    root: &CommitmentRoot,
+    path: impl Into<Path>,
+) -> Result<(), ClientError> {
+    let merkle_path = apply_prefix(prefix, vec![path.into().to_string()]);
+    let merkle_proof: MerkleProof = RawMerkleProof::try_from(proof.clone())
+        .map_err(ClientError::InvalidCommitmentProof)?
+        .into();
+
+    merkle_proof
+        .verify_non_membership(&client_state.proof_specs, root.clone().into(), merkle_path)
+        .map_err(ClientError::Ics23Verification)
 }
 
 impl Protobuf<RawTmClientState> for ClientState {}

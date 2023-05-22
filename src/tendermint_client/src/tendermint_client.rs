@@ -19,7 +19,7 @@ use tendermint_light_client_verifier::options::Options;
 use tendermint_light_client_verifier::types::{TrustedBlockState, UntrustedBlockState};
 use tendermint_light_client_verifier::{types::Time, ProdVerifier, Verdict, Verifier};
 
-use ibc::clients::ics07_tendermint::consensus_state::ConsensusState as TmConsensusState;
+pub use ibc::clients::ics07_tendermint::consensus_state::ConsensusState as TmConsensusState;
 use ibc::clients::ics07_tendermint::error::Error;
 use ibc::clients::ics07_tendermint::header::{Header as TmHeader, Header};
 use ibc::clients::ics07_tendermint::misbehaviour::Misbehaviour as TmMisbehaviour;
@@ -38,7 +38,7 @@ use ibc::core::ics23_commitment::commitment::{
 };
 use ibc::core::ics23_commitment::merkle::{apply_prefix, MerkleProof};
 use ibc::core::ics23_commitment::specs::ProofSpecs;
-use ibc::core::ics24_host::identifier::{ChainId, ChannelId, ClientId, ConnectionId, PortId};
+pub use ibc::core::ics24_host::identifier::{ChainId, ChannelId, ClientId, ConnectionId, PortId};
 use ibc::core::ics24_host::path::{
     AcksPath, ChannelEndsPath, ClientConsensusStatePath, ClientStatePath, ClientUpgradePath,
     CommitmentsPath, ConnectionsPath, ReceiptsPath, SeqRecvsPath,
@@ -47,14 +47,14 @@ use ibc::core::ics24_host::Path;
 use ibc::timestamp::{Timestamp, ZERO_DURATION};
 use ibc::Height;
 
-use crate::client_state::ClientState as TmClientState;
+pub use crate::client_state::ClientState as TmClientState;
 use crate::utils::IntoResult;
-use hashbrown::HashMap;
+pub use hashbrown::HashMap;
 
 pub struct TendermintClient {
-    client_id: ClientId,
-    consensus_states: HashMap<Height, TmConsensusState>,
-    client_state: TmClientState,
+    pub client_id: ClientId,
+    pub consensus_states: HashMap<Height, TmConsensusState>,
+    pub client_state: TmClientState,
     // latest_height: Height,
     // frozen_height: Option<Height>,
 
