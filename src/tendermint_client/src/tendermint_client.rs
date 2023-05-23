@@ -17,7 +17,7 @@ use tendermint::chain::id::MAX_LENGTH as MaxChainIdLen;
 use tendermint::trust_threshold::TrustThresholdFraction as TendermintTrustThresholdFraction;
 use tendermint_light_client_verifier::options::Options;
 use tendermint_light_client_verifier::types::{TrustedBlockState, UntrustedBlockState};
-use tendermint_light_client_verifier::{types::Time, ProdVerifier, Verdict, Verifier};
+pub use tendermint_light_client_verifier::{types::Time, ProdVerifier, Verdict, Verifier};
 
 pub use ibc::clients::ics07_tendermint::consensus_state::ConsensusState as TmConsensusState;
 use ibc::clients::ics07_tendermint::error::Error;
@@ -50,6 +50,12 @@ use ibc::Height;
 pub use crate::client_state::ClientState as TmClientState;
 use crate::utils::IntoResult;
 pub use hashbrown::HashMap;
+
+pub(crate) const TENDERMINT_CLIENT_TYPE: &str = "tendermint-vp-client";
+
+pub fn client_type() -> ClientType {
+    ClientType::new(TENDERMINT_CLIENT_TYPE.to_string())
+}
 
 pub struct TendermintClient {
     pub client_id: ClientId,
@@ -309,8 +315,6 @@ impl TendermintClient {
         self.update_state_with_upgrade_client(upgraded_client_state, upgraded_consensus_state)?;
         Ok(())
     }
-
-    pub fn verify_membership() {}
 }
 
 impl TendermintClient {

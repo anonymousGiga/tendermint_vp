@@ -1906,6 +1906,7 @@ dependencies = [
  "prost",
  "serde",
  "serde_json",
+ "sha2 0.10.6",
  "tendermint",
  "tendermint-light-client-verifier",
  "tendermint-testgen",

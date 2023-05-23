@@ -20,8 +20,10 @@ use ibc::timestamp::Timestamp;
 use ibc::Height;
 
 use hashbrown::HashMap;
+use sha2::Digest;
 
-use ibc::core::ics04_channel::packet::Sequence;
+use ibc::core::ics04_channel::packet::{PacketResult, Sequence};
+use ibc::core::ics04_channel::timeout::TimeoutHeight;
 
 pub struct ChannelStore {
     connection_channels: HashMap<ConnectionId, Vec<(PortId, ChannelId)>>,
@@ -90,6 +92,58 @@ impl ChannelStore {
             self.store_next_sequence_ack(result.port_id, result.channel_id, 1.into())?;
         }
 
+        Ok(())
+    }
+
+    pub fn store_packet_result(&mut self, general_result: PacketResult) -> Result<(), PacketError> {
+        match general_result {
+            PacketResult::Send(res) => {
+                self.store_next_sequence_send(
+                    res.port_id.clone(),
+                    res.channel_id.clone(),
+                    res.seq_number,
+                )?;
+
+                self.store_packet_commitment(res.port_id, res.channel_id, res.seq, res.commitment)?;
+            }
+            PacketResult::Recv(res) => match res {
+                RecvPacketResult::Ordered {
+                    port_id,
+                    channel_id,
+                    next_seq_recv,
+                } => self.store_next_sequence_recv(port_id, channel_id, next_seq_recv)?,
+                RecvPacketResult::Unordered {
+                    port_id,
+                    channel_id,
+                    sequence,
+                    receipt,
+                } => self.store_packet_receipt(port_id, channel_id, sequence, receipt)?,
+                RecvPacketResult::NoOp => unreachable!(),
+            },
+            PacketResult::WriteAck(res) => {
+                self.store_packet_acknowledgement(
+                    res.port_id,
+                    res.channel_id,
+                    res.seq,
+                    res.ack_commitment,
+                )?;
+            }
+            PacketResult::Ack(res) => {
+                self.delete_packet_commitment(&res.port_id, &res.channel_id, &res.seq)?;
+                if let Some(s) = res.seq_number {
+                    //Ordered Channel
+                    self.store_next_sequence_ack(res.port_id, res.channel_id, s)?;
+                }
+            }
+            PacketResult::Timeout(res) => {
+                self.delete_packet_commitment(&res.port_id, &res.channel_id, &res.seq)?;
+                if let Some(c) = res.channel {
+                    // Ordered Channel: closes channel
+                    self.store_channel(res.port_id, res.channel_id, c)
+                        .map_err(PacketError::Channel)?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -336,5 +390,33 @@ impl ChannelStore {
             .ok_or(PacketError::PacketAcknowledgementNotFound {
                 sequence: sequence.clone(),
             })
+    }
+
+    pub fn packet_commitment(
+        &self,
+        packet_data: &[u8],
+        timeout_height: &TimeoutHeight,
+        timeout_timestamp: &Timestamp,
+    ) -> PacketCommitment {
+        let mut hash_input = timeout_timestamp.nanoseconds().to_be_bytes().to_vec();
+
+        let revision_number = timeout_height.commitment_revision_number().to_be_bytes();
+        hash_input.append(&mut revision_number.to_vec());
+
+        let revision_height = timeout_height.commitment_revision_height().to_be_bytes();
+        hash_input.append(&mut revision_height.to_vec());
+
+        let packet_data_hash = self.hash(packet_data);
+        hash_input.append(&mut packet_data_hash.to_vec());
+
+        self.hash(&hash_input).into()
+    }
+
+    fn hash(&self, value: &[u8]) -> Vec<u8> {
+        sha2::Sha256::digest(value).to_vec()
+    }
+
+    pub fn ack_commitment(&self, ack: &Acknowledgement) -> AcknowledgementCommitment {
+        self.hash(ack.as_ref()).into()
     }
 }

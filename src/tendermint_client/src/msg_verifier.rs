@@ -1,14 +1,26 @@
 use crate::prelude::*;
-use ibc::core::ics02_client::handler::ClientResult;
 
 use crate::chan_store::*;
 use crate::conn_store::*;
+use crate::tendermint_client;
 use crate::tendermint_client::*;
-// use hashbrown::HashMap;
+use ibc::timestamp::Timestamp;
+use ibc_proto::google::protobuf::Any;
 
 // use ibc::core::ics24_host::identifier::{ChainId, ChannelId, ClientId, ConnectionId, PortId};
+use ibc::core::ics02_client::client_state::ClientState;
+use ibc::core::ics02_client::client_type::ClientType;
+use ibc::core::ics02_client::consensus_state::ConsensusState;
+use ibc::core::ics02_client::context::ClientReader;
+use ibc::core::ics02_client::error::ClientError;
+use ibc::core::ics02_client::events::CreateClient;
+use ibc::core::ics02_client::handler::ClientResult;
+use ibc::core::ics02_client::msgs::create_client::MsgCreateClient;
+use ibc::core::ics02_client::msgs::misbehaviour::MsgSubmitMisbehaviour;
+use ibc::core::ics02_client::msgs::update_client::MsgUpdateClient;
+use ibc::core::ics02_client::msgs::upgrade_client::MsgUpgradeClient;
 use ibc::core::ics02_client::msgs::ClientMsg;
-use ibc::core::ics03_connection::msgs::conn_open_init::*;
+use ibc::core::ics24_host::identifier::ClientId;
 
 use ibc::core::ics03_connection::connection::State as ConnectionState;
 use ibc::core::ics03_connection::connection::{ConnectionEnd, Counterparty, State};
@@ -19,40 +31,54 @@ use ibc::core::ics03_connection::handler::ConnectionResult;
 use ibc::core::ics03_connection::msgs::conn_open_ack::MsgConnectionOpenAck;
 use ibc::core::ics03_connection::msgs::conn_open_confirm::MsgConnectionOpenConfirm;
 use ibc::core::ics03_connection::msgs::conn_open_init::MsgConnectionOpenInit;
+use ibc::core::ics03_connection::msgs::conn_open_init::*;
 use ibc::core::ics03_connection::msgs::conn_open_try::MsgConnectionOpenTry;
 use ibc::core::ics23_commitment::commitment::CommitmentPrefix;
 use ibc::core::ics24_host::identifier::ConnectionId;
 
+use ibc::core::ics04_channel::channel::Order;
 use ibc::core::ics04_channel::channel::{
     ChannelEnd, Counterparty as ChCounterparty, State as ChState,
 };
 use ibc::core::ics04_channel::context::ChannelReader;
 use ibc::core::ics04_channel::error::ChannelError;
+use ibc::core::ics04_channel::error::PacketError;
+use ibc::core::ics04_channel::handler::acknowledgement::AckPacketResult;
+use ibc::core::ics04_channel::handler::recv_packet::RecvPacketResult;
+use ibc::core::ics04_channel::handler::timeout::TimeoutPacketResult;
 use ibc::core::ics04_channel::handler::{ChannelIdState, ChannelResult};
+use ibc::core::ics04_channel::msgs::acknowledgement::MsgAcknowledgement;
 use ibc::core::ics04_channel::msgs::chan_close_init::MsgChannelCloseInit;
 use ibc::core::ics04_channel::msgs::chan_open_ack::MsgChannelOpenAck;
 use ibc::core::ics04_channel::msgs::chan_open_confirm::MsgChannelOpenConfirm;
 use ibc::core::ics04_channel::msgs::chan_open_init::MsgChannelOpenInit;
 use ibc::core::ics04_channel::msgs::chan_open_try::MsgChannelOpenTry;
+use ibc::core::ics04_channel::msgs::recv_packet::MsgRecvPacket;
+use ibc::core::ics04_channel::msgs::timeout::MsgTimeout;
+use ibc::core::ics04_channel::msgs::timeout_on_close::MsgTimeoutOnClose;
+use ibc::core::ics04_channel::packet::{PacketResult, Receipt, Sequence};
 use ibc::core::ics04_channel::Version;
 use ibc::core::ics24_host::identifier::ChannelId;
 
 use ibc::events::IbcEvent;
 use ibc::handler::{HandlerOutput, HandlerResult};
+use ibc::timestamp::Expiry;
 use ibc::Height;
 
 pub const DEFAULT_COMMITMENT_PREFIX: &str = "ibc";
 
-pub struct MessageProcessor {
+pub struct MessageVerifier {
     tendermint_clients: HashMap<ClientId, TendermintClient>,
+    client_ids_counter: u64,
     conn_store: ConnectionStore,
     chan_store: ChannelStore,
 }
 
-impl MessageProcessor {
+impl MessageVerifier {
     pub fn new() -> Self {
-        MessageProcessor {
+        MessageVerifier {
             tendermint_clients: HashMap::new(),
+            client_ids_counter: 0u64,
             conn_store: ConnectionStore::new(),
             chan_store: ChannelStore::new(),
         }
@@ -60,15 +86,105 @@ impl MessageProcessor {
 }
 
 // Process client messages
-impl MessageProcessor {
-    pub fn create_client() {}
-    pub fn update_client() {}
-    pub fn upgrade_client() {}
-    pub fn misbehaviour() {}
+impl MessageVerifier {
+    pub fn create_client(&mut self, msg: MsgCreateClient) -> Result<(), String> {
+        let MsgCreateClient {
+            client_state,
+            consensus_state,
+            signer: _,
+        } = msg;
+
+        let client_state = self.decode_client_state(client_state)?;
+        let client_type = tendermint_client::client_type();
+        let client_id = ClientId::new(client_type.clone(), self.client_ids_counter)
+            .map_err(|e| "ClientError::ClientIdentifierConstructor".to_string())?;
+        let consensus_state = TmConsensusState::try_from(consensus_state)
+            .map_err(|_| "Parse consensus_state error".to_string())?;
+        let tc = tendermint_client::TendermintClient::new(
+            client_id.clone(),
+            consensus_state,
+            client_state,
+        );
+
+        // store
+        self.tendermint_clients.insert(client_id, tc);
+        self.increase_client_counter();
+
+        Ok(())
+    }
+
+    pub fn update_client(&mut self, msg: MsgUpdateClient, now: Time) -> Result<(), String> {
+        let MsgUpdateClient {
+            client_id,
+            header,
+            signer: _,
+        } = msg;
+
+        let client_state = self.client_state(&client_id)?;
+
+        if client_state.is_frozen() {
+            return Err("ClientError::ClientFrozen".to_string());
+        }
+
+        let tc = self
+            .tendermint_clients
+            .get_mut(&client_id)
+            .ok_or("No tendermint client match".to_string())?;
+
+        tc.check_header_and_update_state(header, now)
+            .map_err(|_| "update client error".to_string())
+    }
+
+    pub fn upgrade_client(&mut self, msg: MsgUpgradeClient) -> Result<(), String> {
+        let MsgUpgradeClient { client_id, .. } = msg;
+
+        let old_client_state = self.client_state(&client_id)?;
+        if old_client_state.is_frozen() {
+            return Err("ClientError::ClientFrozen".to_string());
+        }
+
+        let old_consensus_state =
+            self.client_consensus_state(&client_id, &old_client_state.latest_height)?;
+
+        let tc = self
+            .tendermint_clients
+            .get_mut(&client_id)
+            .ok_or("No tendermint client match".to_string())?;
+
+        tc.check_upgrade_client_and_update_state(
+            msg.client_state.clone(),
+            msg.consensus_state.clone(),
+            msg.proof_upgrade_client.clone(),
+            msg.proof_upgrade_consensus_state.clone(),
+            old_consensus_state.root(),
+        )
+        .map_err(|_| "Upgrade client error".to_string())
+    }
+
+    pub fn misbehaviour(&mut self, msg: MsgSubmitMisbehaviour, now: Time) -> Result<(), String> {
+        let MsgSubmitMisbehaviour {
+            client_id,
+            misbehaviour,
+            signer: _,
+        } = msg;
+
+        let client_state = self.client_state(&client_id)?;
+        if client_state.is_frozen() {
+            return Err("ClientError::ClientFrozen { client_id }".to_string());
+        }
+
+        let tc = self
+            .tendermint_clients
+            .get_mut(&client_id)
+            .ok_or("No tendermint client match".to_string())?;
+
+        tc.check_misbehaviour_and_update_state(misbehaviour, now.into())
+            .map_err(|_| "Check misbehaviour error".to_string())
+    }
 }
 
 // Process connection messages
-impl MessageProcessor {
+impl MessageVerifier {
     pub fn conn_open_init(&mut self, msg: MsgConnectionOpenInit) -> Result<(), String> {
         // verify
         let versions = if let Some(version) = msg.version {
@@ -176,23 +292,6 @@ impl MessageProcessor {
                     msg.client_state_of_b_on_a,
                 )
                 .map_err(|_| "ConnectionError::ClientStateVerificationFailure".to_string())?;
-
-            // let expected_consensus_state_of_b_on_a =
-            //     ctx_b.host_consensus_state(&msg.consensus_height_of_b_on_a)?;
-            // client_state_of_a_on_b
-            //     .verify_client_consensus_state(
-            //         msg.proofs_height_on_a,
-            //         prefix_on_a,
-            //         &msg.proof_consensus_state_of_b_on_a,
-            //         consensus_state_of_a_on_b.root(),
-            //         client_id_on_a,
-            //         msg.consensus_height_of_b_on_a,
-            //         expected_consensus_state_of_b_on_a.as_ref(),
-            //     )
-            //     .map_err(|e| ConnectionError::ConsensusStateVerificationFailure {
-            //         height: msg.proofs_height_on_a,
-            //         client_error: e,
-            //     })?;
         }
 
         // store
@@ -339,7 +438,7 @@ impl MessageProcessor {
 }
 
 // Process channel messages
-impl MessageProcessor {
+impl MessageVerifier {
     pub fn chan_open_init(&mut self, msg: &MsgChannelOpenInit) -> Result<(), ChannelError> {
         // verify
         if msg.connection_hops_on_a.len() != 1 {
@@ -751,7 +850,590 @@ impl MessageProcessor {
     }
 }
 
-impl MessageProcessor {
+// For Packet Message
+impl MessageVerifier {
+    pub fn recv_packet(&mut self, msg: &MsgRecvPacket) -> Result<(), PacketError> {
+        let chan_end_on_b = self
+            .chan_store
+            .channel_end(&msg.packet.port_on_b, &msg.packet.chan_on_b)
+            .map_err(PacketError::Channel)?;
+
+        if !chan_end_on_b.state_matches(&ChState::Open) {
+            return Err(PacketError::InvalidChannelState {
+                channel_id: msg.packet.chan_on_a.clone(),
+                state: chan_end_on_b.state,
+            });
+        }
+
+        let counterparty = ChCounterparty::new(
+            msg.packet.port_on_a.clone(),
+            Some(msg.packet.chan_on_a.clone()),
+        );
+
+        if !chan_end_on_b.counterparty_matches(&counterparty) {
+            return Err(PacketError::InvalidPacketCounterparty {
+                port_id: msg.packet.port_on_a.clone(),
+                channel_id: msg.packet.chan_on_a.clone(),
+            });
+        }
+
+        let conn_id_on_b = &chan_end_on_b.connection_hops()[0];
+        let conn_end_on_b = self
+            .connection_end2(conn_id_on_b)
+            .map_err(PacketError::Channel)?;
+
+        if !conn_end_on_b.state_matches(&ConnectionState::Open) {
+            return Err(PacketError::ConnectionNotOpen {
+                connection_id: chan_end_on_b.connection_hops()[0].clone(),
+            });
+        }
+
+        // let latest_height = ChannelReader::host_height(ctx_b).map_err(PacketError::Channel)?;
+        // if msg.packet.timeout_height_on_b.has_expired(latest_height) {
+        //     return Err(PacketError::LowPacketHeight {
+        //         chain_height: latest_height,
+        //         timeout_height: msg.packet.timeout_height_on_b,
+        //     });
+        // }
+
+        // let latest_timestamp =
+        //     ChannelReader::host_timestamp(ctx_b).map_err(PacketError::Channel)?;
+        // if let Expiry::Expired = latest_timestamp.check_expiry(&msg.packet.timeout_timestamp_on_b) {
+        //     return Err(PacketError::LowPacketTimestamp);
+        // }
+
+        // Verify proofs
+        {
+            let client_id_on_b = conn_end_on_b.client_id();
+            let client_state_of_a_on_b = self
+                .client_state2(client_id_on_b)
+                .map_err(PacketError::Channel)?;
+
+            // The client must not be frozen.
+            if client_state_of_a_on_b.is_frozen() {
+                return Err(PacketError::FrozenClient {
+                    client_id: client_id_on_b.clone(),
+                });
+            }
+
+            let consensus_state_of_a_on_b = self
+                .client_consensus_state2(client_id_on_b, &msg.proof_height_on_a)
+                .map_err(PacketError::Channel)?;
+
+            let expected_commitment_on_a = self.chan_store.packet_commitment(
+                &msg.packet.data,
+                &msg.packet.timeout_height_on_b,
+                &msg.packet.timeout_timestamp_on_b,
+            );
+            // Verify the proof for the packet against the chain store.
+            client_state_of_a_on_b
+                .verify_packet_data(
+                    // ctx_b,
+                    msg.proof_height_on_a,
+                    &conn_end_on_b,
+                    &msg.proof_commitment_on_a,
+                    consensus_state_of_a_on_b.root(),
+                    &msg.packet.port_on_a,
+                    &msg.packet.chan_on_a,
+                    msg.packet.sequence,
+                    expected_commitment_on_a,
+                )
+                .map_err(|e| ChannelError::PacketVerificationFailed {
+                    sequence: msg.packet.sequence,
+                    client_error: e,
+                })
+                .map_err(PacketError::Channel)?;
+        }
+
+        let result = if chan_end_on_b.order_matches(&Order::Ordered) {
+            let next_seq_recv = self
+                .chan_store
+                .get_next_sequence_recv(&msg.packet.port_on_b, &msg.packet.chan_on_b)?;
+            if msg.packet.sequence > next_seq_recv {
+                return Err(PacketError::InvalidPacketSequence {
+                    given_sequence: msg.packet.sequence,
+                    next_sequence: next_seq_recv,
+                });
+            }
+
+            if msg.packet.sequence < next_seq_recv {
+                PacketResult::Recv(RecvPacketResult::NoOp)
+            } else {
+                PacketResult::Recv(RecvPacketResult::Ordered {
+                    port_id: msg.packet.port_on_b.clone(),
+                    channel_id: msg.packet.chan_on_b.clone(),
+                    next_seq_recv: next_seq_recv.increment(),
+                })
+            }
+        } else {
+            let packet_rec = self.chan_store.get_packet_receipt(
+                &msg.packet.port_on_b,
+                &msg.packet.chan_on_b,
+                &msg.packet.sequence,
+            );
+
+            match packet_rec {
+                Ok(_receipt) => PacketResult::Recv(RecvPacketResult::NoOp),
+                Err(PacketError::PacketReceiptNotFound { sequence })
+                    if sequence == msg.packet.sequence =>
+                {
+                    // store a receipt that does not contain any data
+                    PacketResult::Recv(RecvPacketResult::Unordered {
+                        port_id: msg.packet.port_on_b.clone(),
+                        channel_id: msg.packet.chan_on_b.clone(),
+                        sequence: msg.packet.sequence,
+                        receipt: Receipt::Ok,
+                    })
+                }
+                Err(e) => return Err(e),
+            }
+        };
+
+        // store
+        self.chan_store.store_packet_result(result)
+    }
+
+    // PacketMsg::Ack(msg) => acknowledgement::process(ctx, msg),
+    pub fn acknowledgement(&mut self, msg: &MsgAcknowledgement) -> Result<(), PacketError> {
+        let packet = &msg.packet;
+        let chan_end_on_a = self
+            .chan_store
+            .channel_end(&packet.port_on_a, &packet.chan_on_a)
+            .map_err(PacketError::Channel)?;
+
+        if !chan_end_on_a.state_matches(&ChState::Open) {
+            return Err(PacketError::ChannelClosed {
+                channel_id: packet.chan_on_a.clone(),
+            });
+        }
+
+        let counterparty =
+            ChCounterparty::new(packet.port_on_b.clone(), Some(packet.chan_on_b.clone()));
+
+        if !chan_end_on_a.counterparty_matches(&counterparty) {
+            return Err(PacketError::InvalidPacketCounterparty {
+                port_id: packet.port_on_b.clone(),
+                channel_id: packet.chan_on_b.clone(),
+            });
+        }
+
+        let conn_id_on_a = &chan_end_on_a.connection_hops()[0];
+        let conn_end_on_a = self
+            .connection_end2(conn_id_on_a)
+            .map_err(PacketError::Channel)?;
+
+        if !conn_end_on_a.state_matches(&ConnectionState::Open) {
+            return Err(PacketError::ConnectionNotOpen {
+                connection_id: chan_end_on_a.connection_hops()[0].clone(),
+            });
+        }
+
+        // Verify packet commitment
+        let packet_commitment = self.chan_store.get_packet_commitment(
+            &packet.port_on_a,
+            &packet.chan_on_a,
+            &packet.sequence,
+        )?;
+
+        if packet_commitment
+            != self.chan_store.packet_commitment(
+                &packet.data,
+                &packet.timeout_height_on_b,
+                &packet.timeout_timestamp_on_b,
+            )
+        {
+            return Err(PacketError::IncorrectPacketCommitment {
+                sequence: packet.sequence,
+            });
+        }
+
+        // Verify proofs
+        {
+            let client_id_on_a = conn_end_on_a.client_id();
+            let client_state_on_a = self
+                .client_state2(client_id_on_a)
+                .map_err(PacketError::Channel)?;
+
+            // The client must not be frozen.
+            if client_state_on_a.is_frozen() {
+                return Err(PacketError::FrozenClient {
+                    client_id: client_id_on_a.clone(),
+                });
+            }
+
+            let consensus_state = self
+                .client_consensus_state2(client_id_on_a, &msg.proof_height_on_b)
+                .map_err(PacketError::Channel)?;
+
+            let ack_commitment = self.chan_store.ack_commitment(&msg.acknowledgement);
+
+            // Verify the proof for the packet against the chain store.
+            client_state_on_a
+                .verify_packet_acknowledgement(
+                    msg.proof_height_on_b,
+                    &conn_end_on_a,
+                    &msg.proof_acked_on_b,
+                    consensus_state.root(),
+                    &packet.port_on_b,
+                    &packet.chan_on_b,
+                    packet.sequence,
+                    ack_commitment,
+                )
+                .map_err(|e| ChannelError::PacketVerificationFailed {
+                    sequence: packet.sequence,
+                    client_error: e,
+                })
+                .map_err(PacketError::Channel)?;
+        }
+
+        let result = if chan_end_on_a.order_matches(&Order::Ordered) {
+            let next_seq_ack = self
+                .chan_store
+                .get_next_sequence_ack(&packet.port_on_a, &packet.chan_on_a)?;
+
+            if packet.sequence != next_seq_ack {
+                return Err(PacketError::InvalidPacketSequence {
+                    given_sequence: packet.sequence,
+                    next_sequence: next_seq_ack,
+                });
+            }
+
+            PacketResult::Ack(AckPacketResult {
+                port_id: packet.port_on_a.clone(),
+                channel_id: packet.chan_on_a.clone(),
+                seq: packet.sequence,
+                seq_number: Some(next_seq_ack.increment()),
+            })
+        } else {
+            PacketResult::Ack(AckPacketResult {
+                port_id: packet.port_on_a.clone(),
+                channel_id: packet.chan_on_a.clone(),
+                seq: packet.sequence,
+                seq_number: None,
+            })
+        };
+
+        // store
+        self.chan_store.store_packet_result(result)
+    }
+
+    // PacketMsg::Timeout(msg) => timeout::process(ctx, msg),
+    pub fn timeout(&mut self, msg: &MsgTimeout) -> Result<(), PacketError> {
+        let mut chan_end_on_a = self
+            .chan_store
+            .channel_end(&msg.packet.port_on_a, &msg.packet.chan_on_a)
+            .map_err(PacketError::Channel)?;
+
+        if !chan_end_on_a.state_matches(&ChState::Open) {
+            return Err(PacketError::ChannelClosed {
+                channel_id: msg.packet.chan_on_a.clone(),
+            });
+        }
+
+        let counterparty = ChCounterparty::new(
+            msg.packet.port_on_b.clone(),
+            Some(msg.packet.chan_on_b.clone()),
+        );
+
+        if !chan_end_on_a.counterparty_matches(&counterparty) {
+            return Err(PacketError::InvalidPacketCounterparty {
+                port_id: msg.packet.port_on_b.clone(),
+                channel_id: msg.packet.chan_on_b.clone(),
+            });
+        }
+
+        let conn_id_on_a = chan_end_on_a.connection_hops()[0].clone();
+        let conn_end_on_a = self
+            .connection_end2(&conn_id_on_a)
+            .map_err(PacketError::Channel)?;
+
+        //verify packet commitment
+        let commitment_on_a = self.chan_store.get_packet_commitment(
+            &msg.packet.port_on_a,
+            &msg.packet.chan_on_a,
+            &msg.packet.sequence,
+        )?;
+
+        let expected_commitment_on_a = self.chan_store.packet_commitment(
+            &msg.packet.data,
+            &msg.packet.timeout_height_on_b,
+            &msg.packet.timeout_timestamp_on_b,
+        );
+        if commitment_on_a != expected_commitment_on_a {
+            return Err(PacketError::IncorrectPacketCommitment {
+                sequence: msg.packet.sequence,
+            });
+        }
+
+        // Verify proofs
+        {
+            let client_id_on_a = conn_end_on_a.client_id();
+            let client_state_of_b_on_a = self
+                .client_state2(client_id_on_a)
+                .map_err(PacketError::Channel)?;
+
+            // check that timeout height or timeout timestamp has passed on the other end
+            if msg
+                .packet
+                .timeout_height_on_b
+                .has_expired(msg.proof_height_on_b)
+            {
+                return Err(PacketError::PacketTimeoutHeightNotReached {
+                    timeout_height: msg.packet.timeout_height_on_b,
+                    chain_height: msg.proof_height_on_b,
+                });
+            }
+
+            let consensus_state_of_b_on_a = self
+                .client_consensus_state2(client_id_on_a, &msg.proof_height_on_b)
+                .map_err(PacketError::Channel)?;
+            let timestamp_of_b = consensus_state_of_b_on_a.timestamp();
+
+            if let Expiry::Expired = msg
+                .packet
+                .timeout_timestamp_on_b
+                .check_expiry(&timestamp_of_b)
+            {
+                return Err(PacketError::PacketTimeoutTimestampNotReached {
+                    timeout_timestamp: msg.packet.timeout_timestamp_on_b,
+                    chain_timestamp: timestamp_of_b,
+                });
+            }
+            let next_seq_recv_verification_result = if chan_end_on_a.order_matches(&Order::Ordered)
+            {
+                if msg.packet.sequence < msg.next_seq_recv_on_b {
+                    return Err(PacketError::InvalidPacketSequence {
+                        given_sequence: msg.packet.sequence,
+                        next_sequence: msg.next_seq_recv_on_b,
+                    });
+                }
+                client_state_of_b_on_a.verify_next_sequence_recv(
+                    msg.proof_height_on_b,
+                    &conn_end_on_a,
+                    &msg.proof_unreceived_on_b,
+                    consensus_state_of_b_on_a.root(),
+                    &msg.packet.port_on_b,
+                    &msg.packet.chan_on_b,
+                    msg.packet.sequence,
+                )
+            } else {
+                client_state_of_b_on_a.verify_packet_receipt_absence(
+                    msg.proof_height_on_b,
+                    &conn_end_on_a,
+                    &msg.proof_unreceived_on_b,
+                    consensus_state_of_b_on_a.root(),
+                    &msg.packet.port_on_b,
+                    &msg.packet.chan_on_b,
+                    msg.packet.sequence,
+                )
+            };
+            next_seq_recv_verification_result
+                .map_err(|e| ChannelError::PacketVerificationFailed {
+                    sequence: msg.next_seq_recv_on_b,
+                    client_error: e,
+                })
+                .map_err(PacketError::Channel)?;
+        }
+
+        let packet_res_chan = if chan_end_on_a.order_matches(&Order::Ordered) {
+            // output.emit(IbcEvent::ChannelClosed(ChannelClosed::new(
+            //     msg.packet.port_on_a.clone(),
+            //     msg.packet.chan_on_a.clone(),
+            //     chan_end_on_a.counterparty().port_id.clone(),
+            //     chan_end_on_a.counterparty().channel_id.clone(),
+            //     conn_id_on_a,
+            //     chan_end_on_a.ordering,
+            // )));
+            chan_end_on_a.state = ChState::Closed;
+            Some(chan_end_on_a)
+        } else {
+            None
+        };
+
+        let result = PacketResult::Timeout(TimeoutPacketResult {
+            port_id: msg.packet.port_on_a.clone(),
+            channel_id: msg.packet.chan_on_a.clone(),
+            seq: msg.packet.sequence,
+            channel: packet_res_chan,
+        });
+
+        // store
+        self.chan_store.store_packet_result(result)
+    }
+
+    // PacketMsg::TimeoutOnClose(msg) => timeout_on_close::process(ctx, msg),
+    pub fn timeout_on_close(&mut self, msg: &MsgTimeoutOnClose) -> Result<(), PacketError> {
+        let packet = &msg.packet;
+        let chan_end_on_a = self
+            .chan_store
+            .channel_end(&packet.port_on_a, &packet.chan_on_a)
+            .map_err(PacketError::Channel)?;
+
+        let counterparty =
+            ChCounterparty::new(packet.port_on_b.clone(), Some(packet.chan_on_b.clone()));
+
+        if !chan_end_on_a.counterparty_matches(&counterparty) {
+            return Err(PacketError::InvalidPacketCounterparty {
+                port_id: packet.port_on_b.clone(),
+                channel_id: packet.chan_on_b.clone(),
+            });
+        }
+
+        //verify the packet was sent, check the store
+        let commitment_on_a = self.chan_store.get_packet_commitment(
+            &packet.port_on_a,
+            &packet.chan_on_a,
+            &packet.sequence,
+        )?;
+
+        let expected_commitment_on_a = self.chan_store.packet_commitment(
+            &packet.data,
+            &packet.timeout_height_on_b,
+            &packet.timeout_timestamp_on_b,
+        );
+        if commitment_on_a != expected_commitment_on_a {
+            return Err(PacketError::IncorrectPacketCommitment {
+                sequence: packet.sequence,
+            });
+        }
+
+        let conn_id_on_a = chan_end_on_a.connection_hops()[0].clone();
+        let conn_end_on_a = self
+            .connection_end2(&conn_id_on_a)
+            .map_err(PacketError::Channel)?;
+
+        // Verify proofs
+        {
+            let client_id_on_a = conn_end_on_a.client_id();
+            let client_state_of_b_on_a = self
+                .client_state2(client_id_on_a)
+                .map_err(PacketError::Channel)?;
+
+            // The client must not be frozen.
+            if client_state_of_b_on_a.is_frozen() {
+                return Err(PacketError::FrozenClient {
+                    client_id: client_id_on_a.clone(),
+                });
+            }
+
+            let consensus_state_of_b_on_a = self
+                .client_consensus_state2(client_id_on_a, &msg.proof_height_on_b)
+                .map_err(PacketError::Channel)?;
+            let prefix_on_b = conn_end_on_a.counterparty().prefix();
+            let port_id_on_b = &chan_end_on_a.counterparty().port_id;
+            let chan_id_on_b =
+                chan_end_on_a
+                    .counterparty()
+                    .channel_id()
+                    .ok_or(PacketError::Channel(
+                        ChannelError::InvalidCounterpartyChannelId,
+                    ))?;
+            let conn_id_on_b = conn_end_on_a.counterparty().connection_id().ok_or(
+                PacketError::UndefinedConnectionCounterparty {
+                    connection_id: chan_end_on_a.connection_hops()[0].clone(),
+                },
+            )?;
+            let expected_conn_hops_on_b = vec![conn_id_on_b.clone()];
+            let expected_counterparty =
+                ChCounterparty::new(packet.port_on_a.clone(), Some(packet.chan_on_a.clone()));
+            let expected_chan_end_on_b = ChannelEnd::new(
+                ChState::Closed,
+                *chan_end_on_a.ordering(),
+                expected_counterparty,
+                expected_conn_hops_on_b,
+                chan_end_on_a.version().clone(),
+            );
+
+            // Verify the proof for the channel state against the expected channel end.
+            // A counterparty channel id of None in not possible, and is checked by validate_basic in msg.
+            client_state_of_b_on_a
+                .verify_channel_state(
+                    msg.proof_height_on_b,
+                    prefix_on_b,
+                    &msg.proof_unreceived_on_b,
+                    consensus_state_of_b_on_a.root(),
+                    port_id_on_b,
+                    chan_id_on_b,
+                    &expected_chan_end_on_b,
+                )
+                .map_err(ChannelError::VerifyChannelFailed)
+                .map_err(PacketError::Channel)?;
+
+            let next_seq_recv_verification_result = if chan_end_on_a.order_matches(&Order::Ordered)
+            {
+                if packet.sequence < msg.next_seq_recv_on_b {
+                    return Err(PacketError::InvalidPacketSequence {
+                        given_sequence: packet.sequence,
+                        next_sequence: msg.next_seq_recv_on_b,
+                    });
+                }
+                client_state_of_b_on_a.verify_next_sequence_recv(
+                    msg.proof_height_on_b,
+                    &conn_end_on_a,
+                    &msg.proof_unreceived_on_b,
+                    consensus_state_of_b_on_a.root(),
+                    &packet.port_on_b,
+                    &packet.chan_on_b,
+                    packet.sequence,
+                )
+            } else {
+                client_state_of_b_on_a.verify_packet_receipt_absence(
+                    msg.proof_height_on_b,
+                    &conn_end_on_a,
+                    &msg.proof_unreceived_on_b,
+                    consensus_state_of_b_on_a.root(),
+                    &packet.port_on_b,
+                    &packet.chan_on_b,
+                    packet.sequence,
+                )
+            };
+            next_seq_recv_verification_result
+                .map_err(|e| ChannelError::PacketVerificationFailed {
+                    sequence: msg.next_seq_recv_on_b,
+                    client_error: e,
+                })
+                .map_err(PacketError::Channel)?;
+        };
+
+        let packet_res_chan = if chan_end_on_a.order_matches(&Order::Ordered) {
+            // output.emit(IbcEvent::ChannelClosed(ChannelClosed::new(
+            //     msg.packet.port_on_a.clone(),
+            //     msg.packet.chan_on_a.clone(),
+            //     chan_end_on_a.counterparty().port_id.clone(),
+            //     chan_end_on_a.counterparty().channel_id.clone(),
+            //     conn_id_on_a,
+            //     chan_end_on_a.ordering,
+            // )));
+            Some(chan_end_on_a)
+        } else {
+            None
+        };
+
+        let result = PacketResult::Timeout(TimeoutPacketResult {
+            port_id: packet.port_on_a.clone(),
+            channel_id: packet.chan_on_a.clone(),
+            seq: packet.sequence,
+            channel: packet_res_chan,
+        });
+
+        // store
+        self.chan_store.store_packet_result(result)
+    }
+}
+
+impl MessageVerifier {
+    fn increase_client_counter(&mut self) {
+        self.client_ids_counter = self
+            .client_ids_counter
+            .checked_add(1)
+            .expect("increase client counter overflow");
+    }
+
+    fn decode_client_state(&self, client_state: Any) -> Result<TmClientState, String> {
+        TmClientState::try_from(client_state.clone())
+            .map_err(|_| "ClientError::UnknownClientStateType".to_string())
+    }
+
     fn commitment_prefix(&self) -> CommitmentPrefix {
         CommitmentPrefix::try_from(DEFAULT_COMMITMENT_PREFIX.as_bytes().to_vec())
             .unwrap_or_default()
