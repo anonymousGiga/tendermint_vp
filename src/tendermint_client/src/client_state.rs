@@ -398,6 +398,25 @@ impl ClientState {
 
         verify_membership(self, prefix, proof, root, path, value)
     }
+
+    pub fn verify_channel_state(
+        &self,
+        height: Height,
+        prefix: &CommitmentPrefix,
+        proof: &CommitmentProofBytes,
+        root: &CommitmentRoot,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        expected_channel_end: &ibc::core::ics04_channel::channel::ChannelEnd,
+    ) -> Result<(), ClientError> {
+        self.verify_height(height)?;
+
+        let path = ChannelEndsPath(port_id.clone(), channel_id.clone());
+        let value = expected_channel_end
+            .encode_vec()
+            .map_err(ClientError::InvalidChannelEnd)?;
+        verify_membership(self, prefix, proof, root, path, value)
+    }
 }
 
 impl ClientState {
@@ -425,6 +444,10 @@ impl ClientState {
         self.allow_update.after_misbehaviour = false;
         self.frozen_height = None;
         self.max_clock_drift = ZERO_DURATION;
+    }
+
+    pub fn is_frozen(&self) -> bool {
+        self.frozen_height.is_some()
     }
 }
 

@@ -52,6 +52,47 @@ impl ChannelStore {
 }
 
 impl ChannelStore {
+    pub fn store_channel_result(&mut self, result: ChannelResult) -> Result<(), PacketError> {
+        let connection_id = result.channel_end.connection_hops()[0].clone();
+
+        // The handler processed this channel & some modifications occurred, store the new end.
+        self.store_channel(
+            result.port_id.clone(),
+            result.channel_id.clone(),
+            result.channel_end,
+        )
+        .map_err(PacketError::Channel)?;
+
+        // The channel identifier was freshly brewed.
+        // Increase counter & initialize seq. nrs.
+        if matches!(result.channel_id_state, ChannelIdState::Generated) {
+            self.increase_channel_counter();
+
+            // Associate also the channel end to its connection.
+            self.store_connection_channels(
+                connection_id,
+                result.port_id.clone(),
+                result.channel_id.clone(),
+            )
+            .map_err(PacketError::Channel)?;
+
+            // Initialize send, recv, and ack sequence numbers.
+            self.store_next_sequence_send(
+                result.port_id.clone(),
+                result.channel_id.clone(),
+                1.into(),
+            )?;
+            self.store_next_sequence_recv(
+                result.port_id.clone(),
+                result.channel_id.clone(),
+                1.into(),
+            )?;
+            self.store_next_sequence_ack(result.port_id, result.channel_id, 1.into())?;
+        }
+
+        Ok(())
+    }
+
     fn store_packet_commitment(
         &mut self,
         port_id: PortId,
@@ -190,4 +231,110 @@ impl ChannelStore {
     }
 }
 
-impl ChannelStore {}
+impl ChannelStore {
+    /// Returns a counter on the number of channel ids have been created thus far.
+    /// The value of this counter should increase only via method
+    /// `ChannelKeeper::increase_channel_counter`.
+    pub fn channel_counter(&self) -> Result<u64, ChannelError> {
+        Ok(self.channel_ids_counter)
+    }
+
+    pub fn channel_end(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+    ) -> Result<ChannelEnd, ChannelError> {
+        self.channels
+            .get(&(port_id.clone(), channel_id.clone()))
+            .map(|ce| ce.clone())
+            .ok_or(ChannelError::ChannelNotFound {
+                port_id: port_id.clone(),
+                channel_id: channel_id.clone(),
+            })
+    }
+
+    pub fn get_next_sequence_send(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+    ) -> Result<Sequence, PacketError> {
+        self.next_sequence_send
+            .get(&(port_id.clone(), channel_id.clone()))
+            .map(|sq| sq.clone())
+            .ok_or(PacketError::MissingNextSendSeq {
+                port_id: port_id.clone(),
+                channel_id: channel_id.clone(),
+            })
+    }
+
+    pub fn get_next_sequence_recv(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+    ) -> Result<Sequence, PacketError> {
+        self.next_sequence_recv
+            .get(&(port_id.clone(), channel_id.clone()))
+            .map(|sq| sq.clone())
+            .ok_or(PacketError::MissingNextRecvSeq {
+                port_id: port_id.clone(),
+                channel_id: channel_id.clone(),
+            })
+            .map(Into::into)
+    }
+
+    pub fn get_next_sequence_ack(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+    ) -> Result<Sequence, PacketError> {
+        self.next_sequence_ack
+            .get(&(port_id.clone(), channel_id.clone()))
+            .map(|sq| sq.clone())
+            .ok_or(PacketError::MissingNextSendSeq {
+                port_id: port_id.clone(),
+                channel_id: channel_id.clone(),
+            })
+    }
+
+    pub fn get_packet_commitment(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        sequence: &Sequence,
+    ) -> Result<PacketCommitment, PacketError> {
+        self.packet_commitments
+            .get(&(port_id.clone(), channel_id.clone(), sequence.clone()))
+            .map(|pc| pc.clone())
+            .ok_or(PacketError::PacketCommitmentNotFound {
+                sequence: sequence.clone(),
+            })
+    }
+
+    pub fn get_packet_receipt(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        sequence: &Sequence,
+    ) -> Result<Receipt, PacketError> {
+        self.packet_receipts
+            .get(&(port_id.clone(), channel_id.clone(), sequence.clone()))
+            .map(|pc| pc.clone())
+            .ok_or(PacketError::PacketReceiptNotFound {
+                sequence: sequence.clone(),
+            })
+    }
+
+    pub fn get_packet_acknowledgement(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        sequence: &Sequence,
+    ) -> Result<AcknowledgementCommitment, PacketError> {
+        self.packet_acknowledgements
+            .get(&(port_id.clone(), channel_id.clone(), sequence.clone()))
+            .map(|ac| ac.clone())
+            .ok_or(PacketError::PacketAcknowledgementNotFound {
+                sequence: sequence.clone(),
+            })
+    }
+}
