@@ -3,3 +3,7 @@ members = [
     "src/tendermint_vp_backend",
     "src/tendermint_client",
 ]
+
+[patch.crates-io]
+ibc = { git = "https://github.com/octopus-network/ibc-rs.git", branch = "octopus-v0.28.0"}
+ibc-proto = { git = "https://github.com/octopus-network/ibc-proto-rs.git", branch = "full-cosmos-type-v0.25.0"}

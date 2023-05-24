@@ -9,6 +9,7 @@ edition = "2021"
 candid = "0.8.0"
 ic-cdk = "0.7.0"
 ic-cdk-macros = "0.6.0"
+eyre = { version = "0.6", default-features = false }
 
 hashbrown = "0.13.2"
 serde_json = { version = "1.0", default-features = false, features = ["alloc"]}
@@ -18,9 +19,13 @@ bytes = { version = "1.2.1", default-features = false }
 sha2 = { version = "0.10.6", default-features = false }
 
 tendermint-light-client-verifier = { version = "0.28.0", default-features = false }
-tendermint = { version = "0.28.0", default-features = false, features = ["clock"]}
+tendermint = { version = "0.28.0", default-features = false, features = ["clock", "secp256k1"]}
 ibc = { version = "0.28.0", default-features = false, features = ["serde"]}
+# ibc = { git = "https://github.com/octopus-network/ibc-rs.git", branch = "octopus-v0.28.0", features = ["serde"]}
 ibc-proto = { version = "0.25.0", default-features = false }
+# ibc-proto = { git = "https://github.com/octopus-network/ibc-proto-rs.git", default-features = false, branch = "full-cosmos-type-v0.25.0"}
+
+displaydoc = { version = "0.2", default-features = false }
 
 [dev-dependencies]
 tendermint-testgen = { version = "0.28.0", default-features = false }
@@ -31,12 +36,14 @@ std = [
     "serde/std",
     "serde_json/std",
     "bytes/std",
+    # "eyre/std",
     "sha2/std",
     "prost/std",
     "ibc/serde", 
     "ibc/serde_json", 
     "ibc/std",
     "ibc-proto/std",
+    "displaydoc/std",
     ]
 
 mocks = ["ibc/mocks"]

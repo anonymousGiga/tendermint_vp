@@ -2,10 +2,11 @@
 extern crate alloc;
 
 mod chan_store;
-mod client_state;
 mod conn_store;
-pub mod msg_constructor;
 pub mod msg_verifier;
 mod prelude;
+pub mod solo_data_builder;
+pub mod solomachine;
 mod tendermint_client;
+mod tm_client_state;
 mod utils;

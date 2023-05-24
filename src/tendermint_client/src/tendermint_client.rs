@@ -47,7 +47,7 @@ use ibc::core::ics24_host::Path;
 use ibc::timestamp::{Timestamp, ZERO_DURATION};
 use ibc::Height;
 
-pub use crate::client_state::ClientState as TmClientState;
+pub use crate::tm_client_state::ClientState as TmClientState;
 use crate::utils::IntoResult;
 pub use hashbrown::HashMap;
 
