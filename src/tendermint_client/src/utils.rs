@@ -1,4 +1,9 @@
+use crate::prelude::*;
+use crate::solomachine::datatype::DataType;
+use crate::solomachine::sign_bytes;
 use ibc::clients::ics07_tendermint::error::Error;
+use ibc_proto::protobuf::Protobuf;
+use prost::Message;
 use tendermint_light_client_verifier::{types::Time, ProdVerifier, Verdict, Verifier};
 pub trait IntoResult<T, E> {
     fn into_result(self) -> Result<T, E>;
@@ -12,4 +17,23 @@ impl IntoResult<(), Error> for Verdict {
             Verdict::Invalid(detail) => Err(Error::VerificationError { detail }),
         }
     }
+}
+
+pub(crate) fn construct_sign_bytes(
+    sequence: u64,
+    timestamp: u64,
+    data_type: DataType,
+    data: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let sign_bytes = sign_bytes::SignBytes {
+        sequence,
+        timestamp,
+        diversifier: "oct".to_string(),
+        data_type,
+        data,
+    };
+
+    sign_bytes
+        .encode_vec()
+        .map_err(|_| "encoding to `Any` from `SmClientState`".to_string())
 }

@@ -3,9 +3,9 @@ extern crate alloc;
 
 mod chan_store;
 mod conn_store;
+pub mod header_builder;
 pub mod msg_verifier;
 mod prelude;
-pub mod solo_data_builder;
 pub mod solomachine;
 mod tendermint_client;
 mod tm_client_state;

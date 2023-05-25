@@ -56,6 +56,14 @@ impl PublicKey {
     pub fn to_bytes(&self) -> Vec<u8> {
         self.0.to_bytes()
     }
+
+    pub fn from_raw_secp256k1_data(pk: &[u8]) -> Result<Self, String> {
+        let publick = PublicKey(
+            tendermint::PublicKey::from_raw_secp256k1(pk)
+                .ok_or("Parse pubkey error".to_string())?,
+        );
+        Ok(publick)
+    }
 }
 
 impl TryFrom<Any> for PublicKey {
@@ -72,14 +80,13 @@ impl TryFrom<&Any> for PublicKey {
     fn try_from(any: &Any) -> Result<PublicKey> {
         let err = eyre::Report::from(Error::Other("Error".to_string()));
         match any.type_url.as_str() {
-            Self::ED25519_TYPE_URL => proto::cosmos::crypto::ed25519::PubKey::decode(&*any.value)?
-                .try_into()
-                .map_err(|_| err),
-
+            Self::ED25519_TYPE_URL => proto::cosmos::crypto::ed25519::PubKey::decode(&*any.value)
+                .map_err(|_| err)?
+                .try_into(),
             Self::SECP256K1_TYPE_URL => {
-                proto::cosmos::crypto::secp256k1::PubKey::decode(&*any.value)?
+                proto::cosmos::crypto::secp256k1::PubKey::decode(&*any.value)
+                    .map_err(|_| err)?
                     .try_into()
-                    .map_err(|_| err)
             }
             other => Err(err),
         }

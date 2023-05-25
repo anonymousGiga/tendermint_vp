@@ -96,7 +96,7 @@ impl MessageVerifier {
         let client_state = self.decode_client_state(client_state)?;
         let client_type = tendermint_client::client_type();
         let client_id = ClientId::new(client_type.clone(), self.client_ids_counter)
-            .map_err(|e| "ClientError::ClientIdentifierConstructor".to_string())?;
+            .map_err(|_| "ClientError::ClientIdentifierConstructor".to_string())?;
         let consensus_state = TmConsensusState::try_from(consensus_state)
             .map_err(|_| "Parse consensus_state error".to_string())?;
         let tc = tendermint_client::TendermintClient::new(
