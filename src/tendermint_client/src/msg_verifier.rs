@@ -86,7 +86,10 @@ impl MessageVerifier {
 
 // Process client messages
 impl MessageVerifier {
-    pub fn create_client(&mut self, msg: MsgCreateClient) -> Result<(), String> {
+    pub fn create_client(
+        &mut self,
+        msg: MsgCreateClient,
+    ) -> Result<(TmClientState, TmConsensusState), String> {
         let MsgCreateClient {
             client_state,
             consensus_state,
@@ -101,18 +104,22 @@ impl MessageVerifier {
             .map_err(|_| "Parse consensus_state error".to_string())?;
         let tc = tendermint_client::TendermintClient::new(
             client_id.clone(),
-            consensus_state,
-            client_state,
+            consensus_state.clone(),
+            client_state.clone(),
         );
 
         // store
         self.tendermint_clients.insert(client_id, tc);
         self.increase_client_counter();
 
-        Ok(())
+        Ok((client_state, consensus_state))
     }
 
-    pub fn update_client(&mut self, msg: MsgUpdateClient, now: Time) -> Result<(), String> {
+    pub fn update_client(
+        &mut self,
+        msg: MsgUpdateClient,
+        now: Time,
+    ) -> Result<TmConsensusState, String> {
         let MsgUpdateClient {
             client_id,
             header,

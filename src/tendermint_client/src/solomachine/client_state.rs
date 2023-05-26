@@ -31,7 +31,7 @@ pub struct ClientState {
 
 // impl Ics2ClientState for ClientState {
 impl ClientState {
-    fn chain_id(&self) -> ChainId {
+    pub fn chain_id(&self) -> ChainId {
         ChainId::new("ibc".to_string(), 1)
     }
 
@@ -39,11 +39,11 @@ impl ClientState {
     //     ClientType::Solomachine
     // }
 
-    fn latest_height(&self) -> Height {
+    pub fn latest_height(&self) -> Height {
         Height::new(0, self.sequence).unwrap()
     }
 
-    fn frozen_height(&self) -> Option<Height> {
+    pub fn frozen_height(&self) -> Option<Height> {
         if self.is_frozen {
             Some(Height::new(0, self.sequence).unwrap())
         } else {
@@ -59,7 +59,7 @@ impl ClientState {
     // ) {
     // }
 
-    fn expired(&self, _elapsed: Duration) -> bool {
+    pub fn expired(&self, _elapsed: Duration) -> bool {
         false
     }
 }

@@ -1,22 +1,26 @@
 use crate::prelude::*;
 use crate::solomachine::client_state::{self, ClientState as SmClientState};
 use crate::solomachine::consensus_state::{self, ConsensusState as SmConsensusState, PublicKey};
-use crate::solomachine::datatype::DataType;
+// use crate::solomachine::datatype::DataType;
 use crate::solomachine::header::Header as SmHeader;
 use crate::solomachine::header_data;
+use crate::solomachine::proofs;
 use crate::solomachine::sign_bytes;
-use crate::utils;
+use crate::solomachine::utils;
 
 use crate::tm_client_state::ClientState as TmClientState;
 use ibc::clients::ics07_tendermint::consensus_state::ConsensusState as TmConsensusState;
 use ibc::core::ics02_client::consensus_state::ConsensusState;
 use ibc::Height;
 
+use ibc::core::ics03_connection::connection::ConnectionEnd;
 use ibc::core::ics23_commitment::commitment::CommitmentProofBytes;
 use ibc::core::ics23_commitment::commitment::CommitmentRoot;
 use ibc::timestamp::Timestamp;
 
 use eyre::Result;
+use ibc::core::ics24_host::identifier::ClientId;
+use ibc::core::ics24_host::identifier::ConnectionId;
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::lightclients::solomachine::v1::ClientState as RawSmClientState;
 use ibc_proto::ibc::lightclients::solomachine::v1::ConsensusState as RawSmConsesusState;
@@ -24,18 +28,24 @@ use ibc_proto::protobuf::Protobuf;
 use prost::Message;
 use tendermint::public_key;
 
+use crate::types;
+
+use ibc_proto::ibc::lightclients::solomachine::v1::{
+    ChannelStateData, ClientStateData, ConnectionStateData, ConsensusStateData, DataType,
+    TimestampedSignatureData,
+};
+
 pub fn build_solomachine_client_state(
+    sequence: u64,
     client_state: &TmClientState,
     consensus_state: &TmConsensusState,
     pk: &[u8],
 ) -> Result<SmClientState, String> {
-    // Build the client state.
-    let pk = PublicKey(
-        tendermint::PublicKey::from_raw_secp256k1(pk).ok_or("Parse pubkey error".to_string())?,
-    );
+    let pk = PublicKey::from_raw_secp256k1_data(pk)?;
     let timestamp: Timestamp = consensus_state.timestamp.into();
     Ok(SmClientState {
-        sequence: client_state.latest_height.revision_height(),
+        // sequence: client_state.latest_height.revision_height(),
+        sequence,
         is_frozen: client_state.is_frozen(),
         consensus_state: SmConsensusState {
             public_key: pk,
@@ -66,12 +76,13 @@ pub fn construct_solomachine_header(
     client_state: &TmClientState,
     consensus_state: &TmConsensusState,
     pk: &[u8],
+    sequence: u64,
 ) -> Result<(SmHeader, Vec<u8>), String> {
-    let height = client_state.latest_height.revision_height();
+    // let height = client_state.latest_height.revision_height();
     let timestamp: Timestamp = consensus_state.timestamp.into();
     let pk = PublicKey::from_raw_secp256k1_data(pk)?;
     let solomachine_header_template = SmHeader {
-        sequence: height,
+        sequence,
         timestamp: timestamp.nanoseconds(),
         signature: vec![],
         new_public_key: Some(pk),
@@ -85,10 +96,15 @@ pub fn construct_solomachine_header(
     .encode_vec()
     .map_err(|_| "Encoding to 'Any' from 'HeaderData' error".to_string())?;
     let sign_bytes =
-        utils::construct_sign_bytes(height, timestamp.nanoseconds(), DataType::Header, data)?;
+        utils::construct_sign_bytes(sequence, timestamp.nanoseconds(), DataType::Header, data)?;
 
     Ok((solomachine_header_template, sign_bytes))
 }
+
+// let (mut h, data) = construct_solomachine_header.unwrap();
+// let raw_signature = canister.sign(&data);
+// let smh = build_solomachine_header(h, &raw_signature).unwrap();
+// return smh
 
 pub fn build_solomachine_header(
     mut solomachine_header_template: SmHeader,

@@ -98,7 +98,7 @@ impl TendermintClient {
         &mut self,
         header: Any,
         now: Time,
-    ) -> Result<(), ClientError> {
+    ) -> Result<TmConsensusState, ClientError> {
         let header = Header::try_from(header)?;
 
         if header.height().revision_number() != self.client_state.chain_id().version() {
@@ -116,7 +116,7 @@ impl TendermintClient {
             if *cs == header_consensus_state {
                 // Header is already installed and matches the incoming
                 // header (already verified)
-                return Ok(());
+                return Ok(header_consensus_state.clone());
             }
         }
 
@@ -220,9 +220,9 @@ impl TendermintClient {
         self.client_state = self.client_state.clone().with_header(header.clone())?;
         // self.latest_height = height;
         let cs = TmConsensusState::from(header);
-        self.consensus_states.insert(height, cs);
+        self.consensus_states.insert(height, cs.clone());
 
-        Ok(())
+        Ok(cs)
     }
 
     // MsgSubmitMisbehaviour

@@ -1,28 +1,45 @@
 # Client
-## create_client
-TendermintClient::new
+## create_client + (client_id, sequence)
+(client_state, consensus_State) = msg_verifier.create_client()
+sm_client_State = header_build.build_solomachine_client_state(&client_State, &consensus_state, sequence, pk);
+sm_consensus_State = header_build.build_solomachine_consensus_state(&consensus_state, pk);
 
-## update_client
-TendermintClient::check_header_and_update_state
+return (sm_client_state, sm_consensus_State)
+
+## update_client 
+(client_state, consensus_State) = msg_verifier.update_client()
+look client_id: sequence = sequence_cnt 
+(sm_header_temp, sign_bytes) = header_builder.construct_solomachine_header(consensus_State, pk, sequence)
+sequence_cnt ++;
+raw_signture = canister.sign(sign_bytes);
+sm_header = header_builder.build_solomachine_header(sm_header_temp, raw_signature)
+return sm_header
+
 
 ## misbehaviour
-TendermintClient::check_misbehaviour_and_update_state
+
+
 
 ## upgrade_client
-TendermintClient::check_upgrade_client_and_update_state
+msg_verifier.upgrade_client(msg).is_ok()
+
+look client_id: sequence = sequence_cnt 
+sm_client_State = header_build.build_solomachine_client_state(&client_State, &consensus_state, sequence, pk);
+sequence_cnt++;
+sm_consensus_State = header_build.build_solomachine_consensus_state(&consensus_state, pk);
+
+return (sm_client_state, sm_consensus_State)
+
 
 # Connection
 ## conn_open_ack
-ibc-rs: 
-       verify_connection_state
-       verify_client_full_state
+
 
 ## conn_open_confirm
 ibc-rs: verify_connection_state
 
 ## conn_open_init
-1、判断对应client_id的client_state是否存在？
-2、创建connectionEnd，然后计算conn_id，将conn_id,connectionEnd存入
+// need do nothing
 
 ## conn_open_try
 

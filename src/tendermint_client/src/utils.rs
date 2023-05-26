@@ -18,22 +18,3 @@ impl IntoResult<(), Error> for Verdict {
         }
     }
 }
-
-pub(crate) fn construct_sign_bytes(
-    sequence: u64,
-    timestamp: u64,
-    data_type: DataType,
-    data: Vec<u8>,
-) -> Result<Vec<u8>, String> {
-    let sign_bytes = sign_bytes::SignBytes {
-        sequence,
-        timestamp,
-        diversifier: "oct".to_string(),
-        data_type,
-        data,
-    };
-
-    sign_bytes
-        .encode_vec()
-        .map_err(|_| "encoding to `Any` from `SmClientState`".to_string())
-}
