@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 #[derive(CandidType, Serialize, Debug)]
 pub struct PublicKeyReply {
-    pub public_key_hex: String,
+    pub public_key_hex: Vec<u8>,
 }
 
 #[derive(CandidType, Serialize, Debug)]
@@ -73,7 +73,7 @@ pub async fn public_key() -> Result<PublicKeyReply, String> {
             .map_err(|e| format!("ecdsa_public_key failed {}", e.1))?;
 
     Ok(PublicKeyReply {
-        public_key_hex: hex::encode(&res.public_key),
+        public_key_hex: res.public_key,
     })
 }
 

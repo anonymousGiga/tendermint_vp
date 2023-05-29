@@ -17,3 +17,8 @@ sha2 = "0.10.6"
 k256 = { version = "0.12.0", features = ["ecdsa"] }
 # Enable `custom` feature of k256's getrandom dependency. See lib.rs for more details.
 getrandom = { version = "0.2", features = ["custom"] }
+
+tendermint_client = { path = "../tendermint_client", default-features = false }
+ibc-proto = { version = "0.25.0", default-features = false }
+ibc = { version = "0.28.0", default-features = false, features = ["serde"]}
+prost = { version = "0.11", default-features = false }

@@ -2,10 +2,10 @@ use crate::prelude::*;
 
 use crate::chan_store::*;
 use crate::conn_store::*;
+use crate::solomachine::consensus_state;
 use crate::tendermint_client;
 use crate::tendermint_client::*;
 use ibc::timestamp::Timestamp;
-use ibc_proto::google::protobuf::Any;
 
 // use ibc::core::ics24_host::identifier::{ChainId, ChannelId, ClientId, ConnectionId, PortId};
 use ibc::core::ics02_client::client_state::ClientState;
@@ -21,6 +21,10 @@ use ibc::core::ics02_client::msgs::update_client::MsgUpdateClient;
 use ibc::core::ics02_client::msgs::upgrade_client::MsgUpgradeClient;
 use ibc::core::ics02_client::msgs::ClientMsg;
 use ibc::core::ics24_host::identifier::ClientId;
+use ibc_proto::google::protobuf::Any;
+use ibc_proto::ibc::core::client::v1::MsgCreateClient as RawMsgCreateClient;
+use ibc_proto::protobuf::Protobuf;
+use prost::Message;
 
 use ibc::core::ics03_connection::connection::State as ConnectionState;
 use ibc::core::ics03_connection::connection::{ConnectionEnd, Counterparty, State};
@@ -71,6 +75,7 @@ pub struct MessageVerifier {
     client_ids_counter: u64,
     conn_store: ConnectionStore,
     chan_store: ChannelStore,
+    pub sequence_cnt: u64,
 }
 
 impl MessageVerifier {
@@ -80,6 +85,7 @@ impl MessageVerifier {
             client_ids_counter: 0u64,
             conn_store: ConnectionStore::new(),
             chan_store: ChannelStore::new(),
+            sequence_cnt: 1u64,
         }
     }
 }
@@ -227,7 +233,20 @@ impl MessageVerifier {
         Ok(())
     }
 
-    pub fn conn_open_try(&mut self, msg: MsgConnectionOpenTry) -> Result<(), String> {
+    pub fn conn_open_try(
+        &mut self,
+        msg: MsgConnectionOpenTry,
+        conn_end: ConnectionEnd,
+    ) -> Result<
+        (
+            TmClientState,
+            TmConsensusState,
+            ConnectionId,
+            ConnectionEnd,
+            ClientId,
+        ),
+        String,
+    > {
         // verify
         let conn_id_on_b = ConnectionId::new(
             self.conn_store
@@ -257,12 +276,12 @@ impl MessageVerifier {
             .connection_id()
             .ok_or("ConnectionError::InvalidCounterparty".to_string())?;
 
+        let client_state_of_a_on_b = self.client_state(conn_end_on_b.client_id())?;
+        let consensus_state_of_a_on_b =
+            self.client_consensus_state(&msg.client_id_on_b, &msg.proofs_height_on_a)?;
+
         // Verify proofs
         {
-            let client_state_of_a_on_b = self.client_state(conn_end_on_b.client_id())?;
-            let consensus_state_of_a_on_b =
-                self.client_consensus_state(&msg.client_id_on_b, &msg.proofs_height_on_a)?;
-
             let prefix_on_a = conn_end_on_b.counterparty().prefix();
             let prefix_on_b = self.commitment_prefix();
 
@@ -303,12 +322,21 @@ impl MessageVerifier {
         // store
         self.conn_store.increase_connection_counter();
         self.store_connection_to_client(conn_id_on_b.clone(), conn_end_on_b.client_id().clone())?;
-        self.store_connection(conn_id_on_b, conn_end_on_b)?;
+        self.store_connection(conn_id_on_b, conn_end_on_b.clone())?;
 
-        Ok(())
+        Ok((
+            client_state_of_a_on_b,
+            consensus_state_of_a_on_b,
+            conn_id_on_a.clone(),
+            conn_end,
+            client_id_on_a.clone(),
+        ))
     }
 
-    pub fn conn_open_ack(&mut self, msg: MsgConnectionOpenAck) -> Result<(), String> {
+    pub fn conn_open_ack(
+        &mut self,
+        msg: MsgConnectionOpenAck,
+    ) -> Result<(TmClientState, TmConsensusState), String> {
         let conn_end_on_a = self.connection_end(&msg.conn_id_on_a)?;
         if !(conn_end_on_a.state_matches(&State::Init)
             && conn_end_on_a.versions().contains(&msg.version))
@@ -319,12 +347,12 @@ impl MessageVerifier {
         let client_id_on_a = conn_end_on_a.client_id();
         let client_id_on_b = conn_end_on_a.counterparty().client_id();
 
+        let client_state_of_b_on_a = self.client_state(client_id_on_a)?;
+        let consensus_state_of_b_on_a =
+            self.client_consensus_state(conn_end_on_a.client_id(), &msg.proofs_height_on_b)?;
+
         // Proof verification.
         {
-            let client_state_of_b_on_a = self.client_state(client_id_on_a)?;
-            let consensus_state_of_b_on_a =
-                self.client_consensus_state(conn_end_on_a.client_id(), &msg.proofs_height_on_b)?;
-
             let prefix_on_a = self.commitment_prefix();
             let prefix_on_b = conn_end_on_a.counterparty().prefix();
 
@@ -379,7 +407,7 @@ impl MessageVerifier {
 
         self.store_connection(msg.conn_id_on_a, new_conn_end_on_a)?;
 
-        Ok(())
+        Ok((client_state_of_b_on_a, consensus_state_of_b_on_a))
     }
 
     pub fn conn_open_confirm(&mut self, msg: MsgConnectionOpenConfirm) -> Result<(), String> {

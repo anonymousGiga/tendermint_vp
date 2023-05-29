@@ -1946,10 +1946,14 @@ dependencies = [
  "candid",
  "getrandom",
  "hex",
+ "ibc",
+ "ibc-proto",
  "ic-cdk",
  "k256 0.12.0",
+ "prost",
  "serde",
  "sha2 0.10.6",
+ "tendermint_client",
 ]
 
 [[package]]
