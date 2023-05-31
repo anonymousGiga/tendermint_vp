@@ -199,8 +199,8 @@ pub fn construct_solomachine_consensus_state_sign_bytes(
 }
 
 pub fn build_solomachine_consensus_state_proof(
-    client_state: &SmClientState,
     message_type: types::ConnectionMsgType,
+    client_state: &SmClientState,
     raw_signature: &[u8],
     time: u64,
 ) -> Result<(CommitmentProofBytes, Height), String> {

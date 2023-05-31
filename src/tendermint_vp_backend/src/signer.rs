@@ -8,12 +8,12 @@ use std::str::FromStr;
 
 #[derive(CandidType, Serialize, Debug)]
 pub struct PublicKeyReply {
-    pub public_key_hex: Vec<u8>,
+    pub public_key: Vec<u8>,
 }
 
 #[derive(CandidType, Serialize, Debug)]
 pub struct SignatureReply {
-    pub signature_hex: String,
+    pub signature: Vec<u8>,
 }
 
 #[derive(CandidType, Serialize, Debug)]
@@ -73,13 +73,13 @@ pub async fn public_key() -> Result<PublicKeyReply, String> {
             .map_err(|e| format!("ecdsa_public_key failed {}", e.1))?;
 
     Ok(PublicKeyReply {
-        public_key_hex: res.public_key,
+        public_key: res.public_key,
     })
 }
 
-pub async fn sign(message: String) -> Result<SignatureReply, String> {
+pub async fn sign(message: &[u8]) -> Result<SignatureReply, String> {
     let request = SignWithECDSA {
-        message_hash: sha256(&message).to_vec(),
+        message_hash: hash(message),
         derivation_path: vec![],
         key_id: EcdsaKeyIds::TestKeyLocalDevelopment.to_key_id(),
     };
@@ -94,7 +94,8 @@ pub async fn sign(message: String) -> Result<SignatureReply, String> {
     .map_err(|e| format!("sign_with_ecdsa failed {}", e.1))?;
 
     Ok(SignatureReply {
-        signature_hex: hex::encode(&response.signature),
+        // signature_hex: hex::encode(&response.signature),
+        signature: response.signature,
     })
 }
 
@@ -127,6 +128,11 @@ fn sha256(input: &String) -> [u8; 32] {
     let mut hasher = sha2::Sha256::new();
     hasher.update(input.as_bytes());
     hasher.finalize().into()
+}
+
+fn hash(input: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    sha2::Sha256::digest(input).to_vec()
 }
 
 enum EcdsaKeyIds {

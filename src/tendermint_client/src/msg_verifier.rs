@@ -67,6 +67,7 @@ use ibc::events::IbcEvent;
 use ibc::handler::{HandlerOutput, HandlerResult};
 use ibc::timestamp::Expiry;
 use ibc::Height;
+use ic_cdk::api::time;
 
 pub const DEFAULT_COMMITMENT_PREFIX: &str = "ibc";
 
@@ -88,6 +89,10 @@ impl MessageVerifier {
             sequence_cnt: 1u64,
         }
     }
+
+    pub fn increase_sequence(&mut self) {
+        self.sequence_cnt += 1;
+    }
 }
 
 // Process client messages
@@ -95,7 +100,7 @@ impl MessageVerifier {
     pub fn create_client(
         &mut self,
         msg: MsgCreateClient,
-    ) -> Result<(TmClientState, TmConsensusState), String> {
+    ) -> Result<(ClientId, TmClientState, TmConsensusState), String> {
         let MsgCreateClient {
             client_state,
             consensus_state,
@@ -115,22 +120,23 @@ impl MessageVerifier {
         );
 
         // store
-        self.tendermint_clients.insert(client_id, tc);
+        self.tendermint_clients.insert(client_id.clone(), tc);
         self.increase_client_counter();
 
-        Ok((client_state, consensus_state))
+        Ok((client_id, client_state, consensus_state))
     }
 
     pub fn update_client(
         &mut self,
         msg: MsgUpdateClient,
-        now: Time,
-    ) -> Result<TmConsensusState, String> {
+    ) -> Result<(ClientId, TmClientState, TmConsensusState), String> {
         let MsgUpdateClient {
             client_id,
             header,
             signer: _,
         } = msg;
+        let time = time();
+        let now = Timestamp::from_nanoseconds(time).map_err(|_| "Get time error".to_string())?;
 
         let client_state = self.client_state(&client_id)?;
 
@@ -143,8 +149,11 @@ impl MessageVerifier {
             .get_mut(&client_id)
             .ok_or("No tendermint client match".to_string())?;
 
-        tc.check_header_and_update_state(header, now)
-            .map_err(|_| "update client error".to_string())
+        let consensus_state = tc
+            .check_header_and_update_state(header, now.into_tm_time().unwrap())
+            .map_err(|_| "update client error".to_string())?;
+
+        Ok((client_id, client_state, consensus_state))
     }
 
     pub fn upgrade_client(&mut self, msg: MsgUpgradeClient) -> Result<(), String> {
@@ -236,17 +245,8 @@ impl MessageVerifier {
     pub fn conn_open_try(
         &mut self,
         msg: MsgConnectionOpenTry,
-        conn_end: ConnectionEnd,
-    ) -> Result<
-        (
-            TmClientState,
-            TmConsensusState,
-            ConnectionId,
-            ConnectionEnd,
-            ClientId,
-        ),
-        String,
-    > {
+        // conn_end: ConnectionEnd,
+    ) -> Result<(), String> {
         // verify
         let conn_id_on_b = ConnectionId::new(
             self.conn_store
@@ -325,18 +325,15 @@ impl MessageVerifier {
         self.store_connection(conn_id_on_b, conn_end_on_b.clone())?;
 
         Ok((
-            client_state_of_a_on_b,
-            consensus_state_of_a_on_b,
-            conn_id_on_a.clone(),
-            conn_end,
-            client_id_on_a.clone(),
+            // client_state_of_a_on_b,
+            // consensus_state_of_a_on_b,
+            // conn_id_on_a.clone(),
+            // conn_end,
+            // client_id_on_a.clone(),
         ))
     }
 
-    pub fn conn_open_ack(
-        &mut self,
-        msg: MsgConnectionOpenAck,
-    ) -> Result<(TmClientState, TmConsensusState), String> {
+    pub fn conn_open_ack(&mut self, msg: MsgConnectionOpenAck) -> Result<(), String> {
         let conn_end_on_a = self.connection_end(&msg.conn_id_on_a)?;
         if !(conn_end_on_a.state_matches(&State::Init)
             && conn_end_on_a.versions().contains(&msg.version))
@@ -407,7 +404,8 @@ impl MessageVerifier {
 
         self.store_connection(msg.conn_id_on_a, new_conn_end_on_a)?;
 
-        Ok((client_state_of_b_on_a, consensus_state_of_b_on_a))
+        // Ok((client_state_of_b_on_a, consensus_state_of_b_on_a))
+        Ok(())
     }
 
     pub fn conn_open_confirm(&mut self, msg: MsgConnectionOpenConfirm) -> Result<(), String> {
