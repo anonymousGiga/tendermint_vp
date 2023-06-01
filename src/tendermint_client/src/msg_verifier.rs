@@ -118,6 +118,9 @@ impl MessageVerifier {
             consensus_state.clone(),
             client_state.clone(),
         );
+        ic_cdk::println!("client_id: {:?}", client_id.clone());
+        ic_cdk::println!("client_state: {:?}", client_state.clone());
+        ic_cdk::println!("consensus_State: {:?}", consensus_state.clone());
 
         // store
         self.tendermint_clients.insert(client_id.clone(), tc);

@@ -51,7 +51,8 @@ pub use crate::tm_client_state::ClientState as TmClientState;
 use crate::utils::IntoResult;
 pub use hashbrown::HashMap;
 
-pub(crate) const TENDERMINT_CLIENT_TYPE: &str = "tendermint-vp-client";
+// pub(crate) const TENDERMINT_CLIENT_TYPE: &str = "tendermint-vp-client";
+pub(crate) const TENDERMINT_CLIENT_TYPE: &str = "06-solomachine";
 
 pub fn client_type() -> ClientType {
     ClientType::new(TENDERMINT_CLIENT_TYPE.to_string())
@@ -81,6 +82,8 @@ impl TendermintClient {
         let mut consensus_states: HashMap<Height, TmConsensusState> = HashMap::new();
 
         consensus_states.insert(client_state.latest_height, consensus_state);
+        ic_cdk::println!("insert: {:?} ", client_state.latest_height);
+
         // let latest_height = client_state.latest_height;
         // let frozen_height = client_state.frozen_height;
         TendermintClient {
@@ -100,16 +103,25 @@ impl TendermintClient {
         now: Time,
     ) -> Result<TmConsensusState, ClientError> {
         let header = Header::try_from(header)?;
+        ic_cdk::println!("1 +++++++++++++++++ ");
+        ic_cdk::println!("chain_id: ====== {:?}", self.client_state.chain_id());
+        ic_cdk::println!("trusted height: ====== {:?}", header.trusted_height);
+        ic_cdk::println!("header height: ====== {:?}", header.height());
+        ic_cdk::println!(
+            "header.time : ====== {:?}",
+            header.signed_header.header.time.to_string()
+        );
 
-        if header.height().revision_number() != self.client_state.chain_id().version() {
-            return Err(ClientError::ClientSpecific {
-                description: Error::MismatchedRevisions {
-                    current_revision: self.client_state.chain_id().version(),
-                    update_revision: header.height().revision_number(),
-                }
-                .to_string(),
-            });
-        }
+        // if header.height().revision_number() != self.client_state.chain_id().version() {
+        //     return Err(ClientError::ClientSpecific {
+        //         description: Error::MismatchedRevisions {
+        //             current_revision: self.client_state.chain_id().version(),
+        //             update_revision: header.height().revision_number(),
+        //         }
+        //         .to_string(),
+        //     });
+        // }
+        // ic_cdk::println!("2 +++++++++++++++++ ");
 
         let header_consensus_state = TmConsensusState::from(header.clone());
         if let Some(cs) = self.consensus_states.get(&header.height()) {
@@ -119,13 +131,21 @@ impl TendermintClient {
                 return Ok(header_consensus_state.clone());
             }
         }
+        ic_cdk::println!("3 +++++++++++++++++ ");
 
-        let trusted_consensus_state = self.consensus_states.get(&header.trusted_height).ok_or(
-            ClientError::ConsensusStateNotFound {
-                client_id: self.client_id.clone(),
-                height: header.trusted_height,
-            },
-        )?;
+        // ------------for test -------------
+        let h = Height::new(1, header.trusted_height.revision_height()).unwrap();
+        // ----------------------------------
+
+        // let trusted_consensus_state = self.consensus_states.get(&header.trusted_height).ok_or(
+        let trusted_consensus_state =
+            self.consensus_states
+                .get(&h)
+                .ok_or(ClientError::ConsensusStateNotFound {
+                    client_id: self.client_id.clone(),
+                    height: header.trusted_height,
+                })?;
+        ic_cdk::println!("4 +++++++++++++++++ ");
 
         let trusted_state = TrustedBlockState {
             chain_id: &self.client_state.chain_id.clone().into(),
@@ -143,6 +163,7 @@ impl TendermintClient {
             next_validators: &header.trusted_validator_set,
             next_validators_hash: trusted_consensus_state.next_validators_hash,
         };
+        ic_cdk::println!("5 +++++++++++++++++ ");
 
         let untrusted_state = UntrustedBlockState {
             signed_header: &header.signed_header,
@@ -152,13 +173,25 @@ impl TendermintClient {
             // untrusted state.
             next_validators: None,
         };
+        ic_cdk::println!("6 +++++++++++++++++ ");
 
         let options = self.client_state.as_light_client_options()?;
+        ic_cdk::println!("7 +++++++++++++++++ ");
 
+        // -----------for test---------------
+        use core::str::FromStr;
+        let now = Time::from_str("2023-06-01T02:15:51.562920032Z").unwrap();
+        // ----------------------------------
+
+        // let r = self.client_state
         self.client_state
             .verifier
             .verify(untrusted_state, trusted_state, &options, now)
             .into_result()?;
+        // if let Err(e) = r {
+        //     ic_cdk::println!("error: {:?}", e);
+        // }
+        ic_cdk::println!("8 +++++++++++++++++ ");
 
         // If the header has verified, but its corresponding consensus state
         // differs from the existing consensus state for that height, should freeze and report.
@@ -175,6 +208,7 @@ impl TendermintClient {
                 });
             }
         }
+        ic_cdk::println!("9 +++++++++++++++++ ");
 
         // Monotonicity checks for timestamps for in-the-middle updates
         // (cs-new, cs-next, cs-latest)
@@ -195,6 +229,7 @@ impl TendermintClient {
                 }
             }
         }
+        ic_cdk::println!("10 +++++++++++++++++ ");
 
         // (cs-trusted, cs-prev, cs-new)
         if header.trusted_height < header.height() {
@@ -214,6 +249,7 @@ impl TendermintClient {
                 }
             }
         }
+        ic_cdk::println!("11 +++++++++++++++++ ");
 
         // update client state and consensus state
         let height = header.height();
