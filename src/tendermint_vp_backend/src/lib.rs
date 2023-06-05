@@ -20,6 +20,7 @@ use tendermint_client::types::ConnectionMsgType;
 
 use ibc::core::{
     ics02_client::msgs::update_client::MsgUpdateClient,
+    ics03_connection::handler::conn_open_confirm,
     ics04_channel::msgs::chan_close_init::MsgChannelCloseInit,
     ics04_channel::msgs::chan_open_ack::MsgChannelOpenAck,
     ics04_channel::msgs::chan_open_confirm::MsgChannelOpenConfirm,
@@ -65,7 +66,9 @@ use ibc::Height;
 use ibc_proto::protobuf::Protobuf;
 use prost::Message;
 
+use mock_data::*;
 use signer::*;
+mod mock_data;
 pub mod signer;
 
 #[update]
@@ -114,10 +117,12 @@ fn start() -> Result<(), String> {
     ic_cdk::print("start!");
     INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
-        if instance.verifier.is_none() {
+        // if instance.verifier.is_none()
+        {
             instance.verifier = Some(MessageVerifier::new())
         }
-        if instance.solo_store.is_none() {
+        // if instance.solo_store.is_none()
+        {
             instance.solo_store = Some(SoloMachineStateStores::new())
         }
     });
@@ -164,6 +169,8 @@ fn increase_sequence() {
 async fn create_client(msg: Vec<u8>) -> Result<SmState, String> {
     let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
     let msg = MsgCreateClient::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+
+    ic_cdk::println!("msg: {:?}", msg);
 
     let pk = public_key().await.unwrap().public_key;
 
@@ -215,7 +222,7 @@ async fn update_client(msg: Vec<u8>) -> Result<Vec<u8>, String> {
     let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
     let msg = MsgUpdateClient::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
-    ic_cdk::println!("msg: {:?}", msg);
+    ic_cdk::println!("update client  msg: {:?}", msg);
 
     let pk = public_key().await.unwrap().public_key;
 
@@ -271,10 +278,17 @@ async fn update_client(msg: Vec<u8>) -> Result<Vec<u8>, String> {
 // output
 #[update]
 async fn conn_open_init(msg: Vec<u8>) -> Result<(), String> {
-    let msg: MsgConnectionOpenInit = RawMsgConnectionOpenInit::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    // let msg: MsgConnectionOpenInit = RawMsgConnectionOpenInit::decode(&msg[..])
+    //     .map_err(|_| "parse msg error".to_string())?
+    //     .try_into()
+    //     .map_err(|_| "parse msg error".to_string())?;
+
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
+    ic_cdk::println!("conn_open_init msg in any: {:?}", msg);
+
+    let msg =
+        MsgConnectionOpenInit::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("conn_open_init msg: {:?}", msg);
 
     INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
@@ -288,7 +302,7 @@ async fn conn_open_init(msg: Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(CandidType, Deserialize, Clone, Default)]
+#[derive(CandidType, Deserialize, Clone, Default, Debug)]
 pub struct Proofs {
     pub sm_client_state: Vec<u8>,
     pub object_proof: Vec<u8>,
@@ -303,26 +317,27 @@ pub struct Proofs {
 #[update]
 async fn conn_open_try(
     msg: Vec<u8>,
-    conn_id: String,
-    conn_end: Vec<u8>,
-    client_id: String,
+    // conn_id: String,
+    // conn_end: Vec<u8>,
+    // client_id: String,
 ) -> Result<Proofs, String> {
-    let msg: MsgConnectionOpenTry = RawMsgConnectionOpenTry::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
-    let conn_id = ConnectionId::from_str(&conn_id).map_err(|_| "parse conn_id error")?;
+    let msg =
+        MsgConnectionOpenTry::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("conn_open_try msg: {:?}", msg);
 
-    let conn_end: ConnectionEnd = RawConnectionEnd::decode(&conn_end[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    // let conn_id = ConnectionId::from_str(&conn_id).map_err(|_| "parse conn_id error")?;
 
-    let client_id = ClientId::from_str(&client_id).map_err(|_| "parse client_id error")?;
+    // let conn_end: ConnectionEnd = RawConnectionEnd::decode(&conn_end[..])
+    //     .map_err(|_| "parse msg error".to_string())?
+    //     .try_into()
+    //     .map_err(|_| "parse msg error".to_string())?;
+
+    // let client_id = ClientId::from_str(&client_id).map_err(|_| "parse client_id error")?;
 
     // verify message
-    INSTANCE.with(|instance| {
+    let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -406,26 +421,18 @@ async fn conn_open_try(
 #[update]
 async fn conn_open_ack(
     msg: Vec<u8>,
-    conn_id: String,
-    conn_end: Vec<u8>,
-    client_id: String,
+    // conn_id: String,
+    // conn_end: Vec<u8>,
+    // client_id: String,
 ) -> Result<Proofs, String> {
-    let msg: MsgConnectionOpenAck = RawMsgConnectionOpenAck::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
-    let conn_id = ConnectionId::from_str(&conn_id).map_err(|_| "parse conn_id error")?;
-
-    let conn_end: ConnectionEnd = RawConnectionEnd::decode(&conn_end[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
-
-    let client_id = ClientId::from_str(&client_id).map_err(|_| "parse client_id error")?;
+    let msg =
+        MsgConnectionOpenAck::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("conn_open_ack msg: {:?}", msg);
 
     // verify message
-    INSTANCE.with(|instance| {
+    let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -507,32 +514,38 @@ async fn conn_open_ack(
 #[update]
 async fn conn_open_confirm(
     msg: Vec<u8>,
-    conn_id: String,
-    conn_end: Vec<u8>,
-    client_id: String,
+    // conn_id: String,
+    // conn_end: Vec<u8>,
+    // client_id: String,
 ) -> Result<Proofs, String> {
-    let msg: MsgConnectionOpenAck = RawMsgConnectionOpenAck::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
+
+    let msg = MsgConnectionOpenConfirm::decode_vec(&msg.value)
         .map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("conn_open_confirm msg: {:?}", msg);
 
-    let conn_id = ConnectionId::from_str(&conn_id).map_err(|_| "parse conn_id error")?;
+    // let msg: MsgConnectionOpenAck = RawMsgConnectionOpenAck::decode(&msg[..])
+    //     .map_err(|_| "parse msg error".to_string())?
+    //     .try_into()
+    //     .map_err(|_| "parse msg error".to_string())?;
 
-    let conn_end: ConnectionEnd = RawConnectionEnd::decode(&conn_end[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    // let conn_id = ConnectionId::from_str(&conn_id).map_err(|_| "parse conn_id error")?;
 
-    let client_id = ClientId::from_str(&client_id).map_err(|_| "parse client_id error")?;
+    // let conn_end: ConnectionEnd = RawConnectionEnd::decode(&conn_end[..])
+    //     .map_err(|_| "parse msg error".to_string())?
+    //     .try_into()
+    //     .map_err(|_| "parse msg error".to_string())?;
+
+    // let client_id = ClientId::from_str(&client_id).map_err(|_| "parse client_id error")?;
 
     // verify message
-    INSTANCE.with(|instance| {
+    let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
             .as_mut()
             .ok_or("Verifier need set".to_string())?
-            .conn_open_ack(msg)
+            .conn_open_confirm(msg)
     })?;
 
     let sm_client_state = INSTANCE.with(|instance| {
@@ -762,96 +775,96 @@ async fn chan_close_init(msg: Vec<u8>) -> Result<(), String> {
 }
 
 #[update]
-async fn test() -> Result<(), String> {
-    let raw_create_client = vec![
-        10, 35, 47, 105, 98, 99, 46, 99, 111, 114, 101, 46, 99, 108, 105, 101, 110, 116, 46, 118,
-        49, 46, 77, 115, 103, 67, 114, 101, 97, 116, 101, 67, 108, 105, 101, 110, 116, 18, 228, 2,
-        10, 169, 1, 10, 43, 47, 105, 98, 99, 46, 108, 105, 103, 104, 116, 99, 108, 105, 101, 110,
-        116, 115, 46, 116, 101, 110, 100, 101, 114, 109, 105, 110, 116, 46, 118, 49, 46, 67, 108,
-        105, 101, 110, 116, 83, 116, 97, 116, 101, 18, 122, 10, 5, 105, 98, 99, 45, 49, 18, 4, 8,
-        2, 16, 3, 26, 4, 8, 128, 234, 73, 34, 4, 8, 128, 223, 110, 42, 2, 8, 40, 50, 0, 58, 4, 8,
-        1, 16, 4, 66, 25, 10, 9, 8, 1, 24, 1, 32, 1, 42, 1, 0, 18, 12, 10, 2, 0, 1, 16, 33, 24, 4,
-        32, 12, 48, 1, 66, 25, 10, 9, 8, 1, 24, 1, 32, 1, 42, 1, 0, 18, 12, 10, 2, 0, 1, 16, 32,
-        24, 1, 32, 1, 48, 1, 74, 7, 117, 112, 103, 114, 97, 100, 101, 74, 16, 117, 112, 103, 114,
-        97, 100, 101, 100, 73, 66, 67, 83, 116, 97, 116, 101, 80, 1, 88, 1, 18, 134, 1, 10, 46, 47,
-        105, 98, 99, 46, 108, 105, 103, 104, 116, 99, 108, 105, 101, 110, 116, 115, 46, 116, 101,
-        110, 100, 101, 114, 109, 105, 110, 116, 46, 118, 49, 46, 67, 111, 110, 115, 101, 110, 115,
-        117, 115, 83, 116, 97, 116, 101, 18, 84, 10, 12, 8, 171, 254, 223, 163, 6, 16, 187, 166,
-        166, 244, 2, 18, 34, 10, 32, 37, 100, 190, 21, 79, 123, 117, 182, 251, 48, 236, 198, 184,
-        63, 165, 158, 77, 189, 113, 220, 163, 89, 249, 199, 121, 104, 99, 169, 23, 49, 219, 12, 26,
-        32, 87, 50, 83, 175, 219, 82, 146, 212, 206, 219, 21, 197, 1, 28, 78, 153, 103, 183, 208,
-        219, 16, 185, 66, 102, 137, 237, 218, 226, 165, 215, 31, 95, 26, 45, 99, 111, 115, 109,
-        111, 115, 49, 118, 117, 51, 57, 120, 57, 116, 106, 112, 56, 108, 112, 57, 121, 101, 101,
-        119, 97, 115, 116, 110, 118, 110, 51, 116, 48, 52, 108, 106, 101, 116, 48, 116, 116, 55,
-        110, 120, 118,
-    ];
-    let raw_update_client = vec![
-        10, 35, 47, 105, 98, 99, 46, 99, 111, 114, 101, 46, 99, 108, 105, 101, 110, 116, 46, 118,
-        49, 46, 77, 115, 103, 85, 112, 100, 97, 116, 101, 67, 108, 105, 101, 110, 116, 18, 189, 7,
-        10, 16, 48, 54, 45, 115, 111, 108, 111, 109, 97, 99, 104, 105, 110, 101, 45, 48, 18, 249,
-        6, 10, 38, 47, 105, 98, 99, 46, 108, 105, 103, 104, 116, 99, 108, 105, 101, 110, 116, 115,
-        46, 116, 101, 110, 100, 101, 114, 109, 105, 110, 116, 46, 118, 49, 46, 72, 101, 97, 100,
-        101, 114, 18, 206, 6, 10, 199, 4, 10, 139, 3, 10, 2, 8, 11, 18, 5, 105, 98, 99, 45, 48, 24,
-        13, 34, 12, 8, 215, 254, 223, 163, 6, 16, 223, 244, 181, 140, 2, 42, 72, 10, 32, 66, 254,
-        221, 169, 126, 110, 11, 240, 195, 230, 242, 38, 57, 173, 46, 198, 198, 226, 110, 117, 216,
-        177, 30, 216, 120, 115, 230, 3, 77, 108, 16, 202, 18, 36, 8, 1, 18, 32, 236, 14, 255, 244,
-        184, 227, 109, 197, 37, 189, 33, 192, 226, 5, 250, 228, 91, 8, 149, 173, 10, 205, 140, 58,
-        70, 95, 225, 147, 251, 79, 149, 135, 50, 32, 213, 192, 10, 177, 142, 227, 84, 237, 23, 86,
-        63, 103, 172, 242, 210, 133, 149, 96, 187, 99, 55, 86, 55, 193, 144, 31, 2, 127, 144, 178,
-        200, 32, 58, 32, 131, 248, 129, 192, 28, 180, 60, 68, 202, 1, 13, 79, 74, 62, 174, 178,
-        188, 39, 211, 233, 189, 51, 101, 4, 146, 55, 11, 215, 64, 152, 13, 73, 66, 32, 214, 137,
-        221, 30, 41, 208, 233, 179, 244, 221, 224, 94, 169, 21, 179, 136, 213, 61, 137, 191, 249,
-        151, 47, 61, 41, 33, 11, 30, 102, 131, 191, 145, 74, 32, 214, 137, 221, 30, 41, 208, 233,
-        179, 244, 221, 224, 94, 169, 21, 179, 136, 213, 61, 137, 191, 249, 151, 47, 61, 41, 33, 11,
-        30, 102, 131, 191, 145, 82, 32, 4, 128, 145, 188, 125, 220, 40, 63, 119, 191, 191, 145,
-        215, 60, 68, 218, 88, 195, 223, 138, 156, 188, 134, 116, 5, 216, 183, 243, 218, 173, 162,
-        47, 90, 32, 106, 181, 140, 167, 170, 30, 84, 149, 184, 244, 129, 202, 179, 213, 93, 225,
-        102, 17, 32, 149, 215, 61, 86, 28, 108, 239, 191, 179, 209, 38, 40, 30, 98, 32, 227, 176,
-        196, 66, 152, 252, 28, 20, 154, 251, 244, 200, 153, 111, 185, 36, 39, 174, 65, 228, 100,
-        155, 147, 76, 164, 149, 153, 27, 120, 82, 184, 85, 106, 32, 227, 176, 196, 66, 152, 252,
-        28, 20, 154, 251, 244, 200, 153, 111, 185, 36, 39, 174, 65, 228, 100, 155, 147, 76, 164,
-        149, 153, 27, 120, 82, 184, 85, 114, 20, 115, 55, 229, 244, 110, 197, 222, 159, 111, 63,
-        221, 214, 133, 212, 142, 75, 17, 103, 222, 152, 18, 182, 1, 8, 13, 26, 72, 10, 32, 131, 43,
-        144, 222, 148, 137, 62, 127, 251, 59, 0, 63, 242, 132, 91, 27, 43, 142, 243, 44, 20, 239,
-        44, 185, 62, 155, 212, 239, 202, 185, 141, 17, 18, 36, 8, 1, 18, 32, 199, 10, 160, 75, 24,
-        104, 221, 3, 123, 183, 205, 35, 137, 37, 137, 217, 43, 120, 197, 228, 218, 193, 163, 225,
-        2, 166, 237, 117, 231, 11, 146, 215, 34, 104, 8, 2, 18, 20, 115, 55, 229, 244, 110, 197,
-        222, 159, 111, 63, 221, 214, 133, 212, 142, 75, 17, 103, 222, 152, 26, 12, 8, 220, 254,
-        223, 163, 6, 16, 236, 175, 231, 154, 2, 34, 64, 237, 229, 174, 126, 74, 83, 148, 67, 15,
-        126, 136, 140, 230, 201, 160, 179, 238, 130, 188, 194, 236, 129, 165, 18, 116, 175, 212,
-        181, 3, 136, 22, 100, 113, 99, 237, 250, 32, 104, 172, 27, 99, 120, 41, 33, 123, 161, 176,
-        48, 77, 57, 180, 191, 130, 122, 214, 227, 118, 79, 48, 163, 35, 142, 61, 11, 18, 126, 10,
-        60, 10, 20, 115, 55, 229, 244, 110, 197, 222, 159, 111, 63, 221, 214, 133, 212, 142, 75,
-        17, 103, 222, 152, 18, 34, 10, 32, 163, 103, 186, 141, 28, 153, 174, 178, 198, 225, 164,
-        33, 248, 29, 255, 66, 255, 18, 165, 188, 183, 9, 158, 232, 209, 122, 163, 228, 81, 6, 253,
-        166, 24, 10, 18, 60, 10, 20, 115, 55, 229, 244, 110, 197, 222, 159, 111, 63, 221, 214, 133,
-        212, 142, 75, 17, 103, 222, 152, 18, 34, 10, 32, 163, 103, 186, 141, 28, 153, 174, 178,
-        198, 225, 164, 33, 248, 29, 255, 66, 255, 18, 165, 188, 183, 9, 158, 232, 209, 122, 163,
-        228, 81, 6, 253, 166, 24, 10, 24, 10, 26, 2, 16, 4, 34, 126, 10, 60, 10, 20, 115, 55, 229,
-        244, 110, 197, 222, 159, 111, 63, 221, 214, 133, 212, 142, 75, 17, 103, 222, 152, 18, 34,
-        10, 32, 163, 103, 186, 141, 28, 153, 174, 178, 198, 225, 164, 33, 248, 29, 255, 66, 255,
-        18, 165, 188, 183, 9, 158, 232, 209, 122, 163, 228, 81, 6, 253, 166, 24, 10, 18, 60, 10,
-        20, 115, 55, 229, 244, 110, 197, 222, 159, 111, 63, 221, 214, 133, 212, 142, 75, 17, 103,
-        222, 152, 18, 34, 10, 32, 163, 103, 186, 141, 28, 153, 174, 178, 198, 225, 164, 33, 248,
-        29, 255, 66, 255, 18, 165, 188, 183, 9, 158, 232, 209, 122, 163, 228, 81, 6, 253, 166, 24,
-        10, 24, 10, 26, 45, 99, 111, 115, 109, 111, 115, 49, 118, 117, 51, 57, 120, 57, 116, 106,
-        112, 56, 108, 112, 57, 121, 101, 101, 119, 97, 115, 116, 110, 118, 110, 51, 116, 48, 52,
-        108, 106, 101, 116, 48, 116, 116, 55, 110, 120, 118,
-    ];
+async fn test0() -> Result<(), String> {
+    let raw_create_client = get_ibc0_create_client();
 
     start()?;
-
     let sm_state = create_client(raw_create_client).await?;
     ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
     let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
         .map_err(|_| "parse client_state error".to_string())?;
-
     let sm_consensus_state = RawSmConsesusState::decode(sm_state.consensus_state.as_ref())
         .map_err(|_| "parse consensus_state error".to_string())?;
 
     ic_cdk::println!("sm client state: {:?}", sm_client_state);
     ic_cdk::println!("sm consensus state: {:?}", sm_consensus_state);
 
+    let raw_update_client = get_ibc0_update_client1();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_update_client = get_ibc1_update_client2();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_connection_open_try = get_ibc1_connection_open_try();
+    let proofs = conn_open_try(raw_connection_open_try).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
+    let raw_update_client = get_ibc1_update_client3();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_connection_open_confirm = get_ibc1_connection_open_confirm();
+    let proofs = conn_open_confirm(raw_connection_open_confirm).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
+    let raw_update_client = get_ibc1_update_client4();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_update_client = get_ibc1_update_client5();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    Ok(())
+}
+
+#[update]
+async fn test1() -> Result<(), String> {
+    let raw_create_client = get_ibc1_create_client();
+
+    start()?;
+    let sm_state = create_client(raw_create_client).await?;
+    ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
+    let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
+        .map_err(|_| "parse client_state error".to_string())?;
+    let sm_consensus_state = RawSmConsesusState::decode(sm_state.consensus_state.as_ref())
+        .map_err(|_| "parse consensus_state error".to_string())?;
+
+    ic_cdk::println!("sm client state: {:?}", sm_client_state);
+    ic_cdk::println!("sm consensus state: {:?}", sm_consensus_state);
+
+    let raw_connection_open_init = get_ibc0_connection_open_init();
+    conn_open_init(raw_connection_open_init).await?;
+
+    let raw_update_client = get_ibc1_update_client1();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_update_client = get_ibc0_update_client2();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_connection_open_ack = get_ibc0_connection_open_ack();
+    let proofs = conn_open_ack(raw_connection_open_ack).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
+    let raw_update_client = get_ibc0_update_client3();
     let sm_header = update_client(raw_update_client).await?;
     let sm_header =
         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;

@@ -83,7 +83,7 @@ impl MessageVerifier {
     pub fn new() -> Self {
         MessageVerifier {
             tendermint_clients: HashMap::new(),
-            client_ids_counter: 0u64,
+            client_ids_counter: 1u64,
             conn_store: ConnectionStore::new(),
             chan_store: ChannelStore::new(),
             sequence_cnt: 1u64,
@@ -108,23 +108,34 @@ impl MessageVerifier {
         } = msg;
 
         let client_state = self.decode_client_state(client_state)?;
+        ic_cdk::println!("client_state: {:?}", client_state);
+        // //\\for test---------------------
+        // client_state.chain_id = ChainId::new("ibc".to_string(), 0u64);
+        // client_state.latest_height = Height::new(0u64, 4u64).unwrap();
+        // // ------------------------------
+        // ic_cdk::println!("new chain_id: ====== {:?}", client_state.chain_id());
+
         let client_type = tendermint_client::client_type();
         let client_id = ClientId::new(client_type.clone(), self.client_ids_counter)
             .map_err(|_| "ClientError::ClientIdentifierConstructor".to_string())?;
         let consensus_state = TmConsensusState::try_from(consensus_state)
             .map_err(|_| "Parse consensus_state error".to_string())?;
+        ic_cdk::println!("consensus_state: {:?}", consensus_state);
+
         let tc = tendermint_client::TendermintClient::new(
             client_id.clone(),
             consensus_state.clone(),
             client_state.clone(),
         );
-        ic_cdk::println!("client_id: {:?}", client_id.clone());
-        ic_cdk::println!("client_state: {:?}", client_state.clone());
-        ic_cdk::println!("consensus_State: {:?}", consensus_state.clone());
+        // ic_cdk::println!("client_id: {:?}", client_id.clone());
+        // ic_cdk::println!("client_state: {:?}", client_state.clone());
+        // ic_cdk::println!("consensus_State: {:?}", consensus_state.clone());
 
         // store
         self.tendermint_clients.insert(client_id.clone(), tc);
+        ic_cdk::println!("insert client_id ++++++++++ =========== {:?}", client_id);
         self.increase_client_counter();
+        ic_cdk::println!("0 client_id ++++++++++ =========== {:?}", client_id);
 
         Ok((client_id, client_state, consensus_state))
     }
@@ -141,6 +152,7 @@ impl MessageVerifier {
         let time = time();
         let now = Timestamp::from_nanoseconds(time).map_err(|_| "Get time error".to_string())?;
 
+        ic_cdk::println!("1 client_id =========== : {:?}", client_id);
         let client_state = self.client_state(&client_id)?;
 
         if client_state.is_frozen() {
@@ -155,6 +167,7 @@ impl MessageVerifier {
         let consensus_state = tc
             .check_header_and_update_state(header, now.into_tm_time().unwrap())
             .map_err(|_| "update client error".to_string())?;
+        ic_cdk::println!("2 client_id ++++++++++ =========== {:?}", client_id);
 
         Ok((client_id, client_state, consensus_state))
     }
@@ -249,7 +262,7 @@ impl MessageVerifier {
         &mut self,
         msg: MsgConnectionOpenTry,
         // conn_end: ConnectionEnd,
-    ) -> Result<(), String> {
+    ) -> Result<(ClientId, ConnectionId, ConnectionEnd), String> {
         // verify
         let conn_id_on_b = ConnectionId::new(
             self.conn_store
@@ -257,6 +270,7 @@ impl MessageVerifier {
                 .map_err(|_| "Get conn_store counter error".to_string())?,
         );
 
+        ic_cdk::println!(" 1++++++++++++++++++++++++++++++++++++++++++++++++ ");
         let version_on_b = self
             .conn_store
             .pick_version(
@@ -265,6 +279,7 @@ impl MessageVerifier {
             )
             .map_err(|_| "Get version error".to_string())?;
 
+        ic_cdk::println!(" 2++++++++++++++++++++++++++++++++++++++++++++++++ ");
         let conn_end_on_b = ConnectionEnd::new(
             State::TryOpen,
             msg.client_id_on_b.clone(),
@@ -272,31 +287,41 @@ impl MessageVerifier {
             vec![version_on_b],
             msg.delay_period,
         );
+        ic_cdk::println!(" 3++++++++++++++++++++++++++++++++++++++++++++++++ ");
 
         let client_id_on_a = msg.counterparty.client_id();
         let conn_id_on_a = conn_end_on_b
             .counterparty()
             .connection_id()
             .ok_or("ConnectionError::InvalidCounterparty".to_string())?;
+        ic_cdk::println!(" 4++++++++++++++++++++++++++++++++++++++++++++++++ ");
 
+        ic_cdk::println!("30 client_id =========== {:?}", conn_end_on_b.client_id());
         let client_state_of_a_on_b = self.client_state(conn_end_on_b.client_id())?;
+        ic_cdk::println!(" 4-1++++++++++++++++++++++++++++++++++++++++++++++++ ");
+        ic_cdk::println!("4-2-1 client_id =========== {:?}", msg.client_id_on_b);
+        ic_cdk::println!("4-2-1 height =========== {:?}", msg.proofs_height_on_a);
         let consensus_state_of_a_on_b =
             self.client_consensus_state(&msg.client_id_on_b, &msg.proofs_height_on_a)?;
+        ic_cdk::println!(" 4-2++++++++++++++++++++++++++++++++++++++++++++++++ ");
 
+        let expected_conn_end_on_a: ConnectionEnd;
         // Verify proofs
         {
             let prefix_on_a = conn_end_on_b.counterparty().prefix();
             let prefix_on_b = self.commitment_prefix();
 
             {
+                ic_cdk::println!(" 4-3++++++++++++++++++++++++++++++++++++++++++++++++ ");
                 let versions_on_a = msg.versions_on_a;
-                let expected_conn_end_on_a = ConnectionEnd::new(
+                expected_conn_end_on_a = ConnectionEnd::new(
                     State::Init,
                     client_id_on_a.clone(),
                     Counterparty::new(msg.client_id_on_b.clone(), None, prefix_on_b),
                     versions_on_a,
                     msg.delay_period,
                 );
+                ic_cdk::println!(" 5++++++++++++++++++++++++++++++++++++++++++++++++ ");
 
                 client_state_of_a_on_b
                     .verify_connection_state(
@@ -309,6 +334,7 @@ impl MessageVerifier {
                     )
                     .map_err(|_| "ConnectionError::VerifyConnectionState".to_string())?;
             }
+            ic_cdk::println!(" 6++++++++++++++++++++++++++++++++++++++++++++++++ ");
 
             client_state_of_a_on_b
                 .verify_client_full_state(
@@ -320,6 +346,7 @@ impl MessageVerifier {
                     msg.client_state_of_b_on_a,
                 )
                 .map_err(|_| "ConnectionError::ClientStateVerificationFailure".to_string())?;
+            ic_cdk::println!(" 7++++++++++++++++++++++++++++++++++++++++++++++++ ");
         }
 
         // store
@@ -328,15 +355,16 @@ impl MessageVerifier {
         self.store_connection(conn_id_on_b, conn_end_on_b.clone())?;
 
         Ok((
-            // client_state_of_a_on_b,
-            // consensus_state_of_a_on_b,
-            // conn_id_on_a.clone(),
-            // conn_end,
-            // client_id_on_a.clone(),
+            client_id_on_a.clone(),
+            conn_id_on_a.clone(),
+            expected_conn_end_on_a,
         ))
     }
 
-    pub fn conn_open_ack(&mut self, msg: MsgConnectionOpenAck) -> Result<(), String> {
+    pub fn conn_open_ack(
+        &mut self,
+        msg: MsgConnectionOpenAck,
+    ) -> Result<(ClientId, ConnectionId, ConnectionEnd), String> {
         let conn_end_on_a = self.connection_end(&msg.conn_id_on_a)?;
         if !(conn_end_on_a.state_matches(&State::Init)
             && conn_end_on_a.versions().contains(&msg.version))
@@ -351,13 +379,14 @@ impl MessageVerifier {
         let consensus_state_of_b_on_a =
             self.client_consensus_state(conn_end_on_a.client_id(), &msg.proofs_height_on_b)?;
 
+        let expected_conn_end_on_b: ConnectionEnd;
         // Proof verification.
         {
             let prefix_on_a = self.commitment_prefix();
             let prefix_on_b = conn_end_on_a.counterparty().prefix();
 
             {
-                let expected_conn_end_on_b = ConnectionEnd::new(
+                expected_conn_end_on_b = ConnectionEnd::new(
                     State::TryOpen,
                     client_id_on_b.clone(),
                     Counterparty::new(
@@ -398,7 +427,7 @@ impl MessageVerifier {
             let mut counterparty = conn_end_on_a.counterparty().clone();
             counterparty.connection_id = Some(msg.conn_id_on_b.clone());
 
-            let mut new_conn_end_on_a = conn_end_on_a;
+            let mut new_conn_end_on_a = conn_end_on_a.clone();
             new_conn_end_on_a.set_state(State::Open);
             new_conn_end_on_a.set_version(msg.version.clone());
             new_conn_end_on_a.set_counterparty(counterparty);
@@ -408,10 +437,17 @@ impl MessageVerifier {
         self.store_connection(msg.conn_id_on_a, new_conn_end_on_a)?;
 
         // Ok((client_state_of_b_on_a, consensus_state_of_b_on_a))
-        Ok(())
+        Ok((
+            client_id_on_b.clone(),
+            msg.conn_id_on_b.clone(),
+            expected_conn_end_on_b,
+        ))
     }
 
-    pub fn conn_open_confirm(&mut self, msg: MsgConnectionOpenConfirm) -> Result<(), String> {
+    pub fn conn_open_confirm(
+        &mut self,
+        msg: MsgConnectionOpenConfirm,
+    ) -> Result<(ClientId, ConnectionId, ConnectionEnd), String> {
         let conn_end_on_b = self.connection_end(&msg.conn_id_on_b)?;
         if !conn_end_on_b.state_matches(&State::TryOpen) {
             return Err("ConnectionError::ConnectionMismatch".to_string());
@@ -423,6 +459,7 @@ impl MessageVerifier {
             .connection_id()
             .ok_or("ConnectionError::InvalidCounterparty".to_string())?;
 
+        let expected_conn_end_on_a: ConnectionEnd;
         // Verify proofs
         {
             let client_state_of_a_on_b = self.client_state(client_id_on_b)?;
@@ -432,7 +469,7 @@ impl MessageVerifier {
             let prefix_on_a = conn_end_on_b.counterparty().prefix();
             let prefix_on_b = self.commitment_prefix();
 
-            let expected_conn_end_on_a = ConnectionEnd::new(
+            expected_conn_end_on_a = ConnectionEnd::new(
                 State::Open,
                 client_id_on_a.clone(),
                 Counterparty::new(
@@ -458,7 +495,7 @@ impl MessageVerifier {
 
         // store
         let new_conn_end_on_b = {
-            let mut new_conn_end_on_b = conn_end_on_b;
+            let mut new_conn_end_on_b = conn_end_on_b.clone();
 
             new_conn_end_on_b.set_state(State::Open);
             new_conn_end_on_b
@@ -466,7 +503,11 @@ impl MessageVerifier {
 
         self.store_connection(msg.conn_id_on_b, new_conn_end_on_b)?;
 
-        Ok(())
+        Ok((
+            client_id_on_a.clone(),
+            conn_id_on_a.clone(),
+            expected_conn_end_on_a,
+        ))
     }
 
     // chann

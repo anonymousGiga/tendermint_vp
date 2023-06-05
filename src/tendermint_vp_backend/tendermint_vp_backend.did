@@ -25,5 +25,6 @@ service : {
   chan_open_confirm: (vec nat8, text, text, vec nat8) -> (variant { Ok: Proofs; Err: text });
   chan_close_init: (vec nat8) -> (variant { Ok: null; Err: text });
 
-  test: () -> (variant { Ok: null; Err: text });
+  test0: () -> (variant { Ok: null; Err: text });
+  test1: () -> (variant { Ok: null; Err: text });
 }
