@@ -4,21 +4,31 @@ type SmState = record {
 };
 
 type Proofs = record {
-  sm_client_state: vec nat8;
+  height: text;
   object_proof: vec nat8;
+  sm_client_state: vec nat8;
   client_state_proof: vec nat8;
+  consensue_height: text;
   consensus_state_proof: vec nat8;
-}
+};
+
+type Id = record {
+  id: text;
+};
 
 service : {
   public_key : () -> (variant { Ok: record { public_key_hex: text; }; Err: text });
   sign : (vec nat8) -> (variant { Ok: record { signature_hex: text; }; Err: text });
   verify : (text, text, text) -> (variant { Ok: record { is_signature_valid: bool; }; Err: text });
+
   create_client: (vec nat8) -> (variant { Ok: SmState; Err: text });
   update_client: (vec nat8) -> (variant { Ok: vec nat8; Err: text });
-  conn_open_try: (vec nat8, text, vec nat8, text) -> (variant { Ok: Proofs; Err: text });
-  conn_open_ack: (vec nat8, text, vec nat8, text) -> (variant { Ok: Proofs; Err: text });
-  conn_open_confirm: (vec nat8, text, vec nat8, text) -> (variant { Ok: Proofs; Err: text });
+
+  conn_open_init: (vec nat8) -> (variant { Ok: null; Err: text });
+  conn_open_try: (vec nat8) -> (variant { Ok: Proofs; Err: text });
+  conn_open_ack: (vec nat8) -> (variant { Ok: Proofs; Err: text });
+  conn_open_confirm: (vec nat8) -> (variant { Ok: Proofs; Err: text });
+
   chan_open_init: (vec nat8) -> (variant { Ok: null; Err: text });
   chan_open_try: (vec nat8, text, text, vec nat8) -> (variant { Ok: Proofs; Err: text });
   chan_open_ack: (vec nat8, text, text, vec nat8) -> (variant { Ok: Proofs; Err: text });
@@ -26,5 +36,10 @@ service : {
   chan_close_init: (vec nat8) -> (variant { Ok: null; Err: text });
 
   test0: () -> (variant { Ok: null; Err: text });
-  test1: () -> (variant { Ok: null; Err: text });
+  test1: () -> (variant { Ok: Proofs; Err: text });
+  test2: (vec nat8) -> (variant { Ok: vec nat8; Err: text });
+  test3: () -> (variant { Ok: vec nat8; Err: text });
+  test4: () -> (variant { Ok: text; Err: text });
+  test5: () -> (variant { Ok: Id; Err: text });
+  test6: () -> (text );
 }

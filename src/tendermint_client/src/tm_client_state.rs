@@ -410,11 +410,14 @@ impl ClientState {
         expected_channel_end: &ibc::core::ics04_channel::channel::ChannelEnd,
     ) -> Result<(), ClientError> {
         self.verify_height(height)?;
+        ic_cdk::println!("1111 +++++++++++++++++ ");
 
         let path = ChannelEndsPath(port_id.clone(), channel_id.clone());
+        ic_cdk::println!("11112 +++++++++++++++++ ");
         let value = expected_channel_end
             .encode_vec()
             .map_err(ClientError::InvalidChannelEnd)?;
+        ic_cdk::println!("11113 +++++++++++++++++ ");
         verify_membership(self, prefix, proof, root, path, value)
     }
 

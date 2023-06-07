@@ -9,10 +9,11 @@ use std::convert::TryFrom;
 use std::str::FromStr;
 
 use std::cell::RefCell;
-use tendermint_client::channel_builder;
-use tendermint_client::connection_builder;
+use tendermint_client::channel_proof_builder;
+use tendermint_client::connection_proof_builder;
 use tendermint_client::header_builder;
 use tendermint_client::msg_verifier::{self, *};
+use tendermint_client::packet_proof_builder;
 use tendermint_client::solomachine::client_state::ClientState as SmClientState;
 use tendermint_client::solomachine::consensus_state::ConsensusState as SmConsensusState;
 use tendermint_client::solomachine_store::SoloMachineStateStores;
@@ -22,9 +23,11 @@ use ibc::core::{
     ics02_client::msgs::update_client::MsgUpdateClient,
     ics03_connection::handler::conn_open_confirm,
     ics04_channel::msgs::chan_close_init::MsgChannelCloseInit,
-    ics04_channel::msgs::chan_open_ack::MsgChannelOpenAck,
-    ics04_channel::msgs::chan_open_confirm::MsgChannelOpenConfirm,
     ics04_channel::msgs::chan_open_try::MsgChannelOpenTry,
+    ics04_channel::msgs::{
+        acknowledgement::MsgAcknowledgement, chan_open_confirm::MsgChannelOpenConfirm,
+    },
+    ics04_channel::msgs::{chan_open_ack::MsgChannelOpenAck, recv_packet::MsgRecvPacket},
     ics04_channel::{channel::ChannelEnd, msgs::chan_open_init::MsgChannelOpenInit},
 };
 use ibc::{
@@ -278,11 +281,6 @@ async fn update_client(msg: Vec<u8>) -> Result<Vec<u8>, String> {
 // output
 #[update]
 async fn conn_open_init(msg: Vec<u8>) -> Result<(), String> {
-    // let msg: MsgConnectionOpenInit = RawMsgConnectionOpenInit::decode(&msg[..])
-    //     .map_err(|_| "parse msg error".to_string())?
-    //     .try_into()
-    //     .map_err(|_| "parse msg error".to_string())?;
-
     let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
     ic_cdk::println!("conn_open_init msg in any: {:?}", msg);
 
@@ -304,37 +302,23 @@ async fn conn_open_init(msg: Vec<u8>) -> Result<(), String> {
 
 #[derive(CandidType, Deserialize, Clone, Default, Debug)]
 pub struct Proofs {
-    pub sm_client_state: Vec<u8>,
-    pub object_proof: Vec<u8>,
-    pub client_state_proof: Vec<u8>,
-    pub consensus_state_proof: Vec<u8>,
-    pub consensue_height: String,
     pub height: String,
+    pub object_proof: Vec<u8>,
+    pub sm_client_state: Vec<u8>,
+    pub client_state_proof: Vec<u8>,
+    pub consensue_height: String,
+    pub consensus_state_proof: Vec<u8>,
 }
 
 // input: sgConnectionOpenTry, conn_id, conn_end, client_id
 // output: connection_proofs
 #[update]
-async fn conn_open_try(
-    msg: Vec<u8>,
-    // conn_id: String,
-    // conn_end: Vec<u8>,
-    // client_id: String,
-) -> Result<Proofs, String> {
+async fn conn_open_try(msg: Vec<u8>) -> Result<Proofs, String> {
     let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
     let msg =
         MsgConnectionOpenTry::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
     ic_cdk::println!("conn_open_try msg: {:?}", msg);
-
-    // let conn_id = ConnectionId::from_str(&conn_id).map_err(|_| "parse conn_id error")?;
-
-    // let conn_end: ConnectionEnd = RawConnectionEnd::decode(&conn_end[..])
-    //     .map_err(|_| "parse msg error".to_string())?
-    //     .try_into()
-    //     .map_err(|_| "parse msg error".to_string())?;
-
-    // let client_id = ClientId::from_str(&client_id).map_err(|_| "parse client_id error")?;
 
     // verify message
     let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
@@ -366,38 +350,40 @@ async fn conn_open_try(
 
     // construct connection proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_builder::construct_solomachine_connection_sign_bytes(
+    let (sign_bytes, time) = connection_proof_builder::construct_solomachine_connection_sign_bytes(
         &conn_id, &conn_end, sequence,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
-        connection_builder::build_solomachine_connection_proof(&raw_signature, time)?;
+        connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
     let height = Height::new(0, sequence).expect("Construct height error");
 
     // construct client_state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_builder::construct_solomachine_client_state_sign_bytes(
-        ConnectionMsgType::OpenTry,
-        &client_id,
-        sequence,
-        &sm_client_state,
-    )?;
+    let (sign_bytes, time) =
+        connection_proof_builder::construct_solomachine_client_state_sign_bytes(
+            ConnectionMsgType::OpenTry,
+            &client_id,
+            sequence,
+            &sm_client_state,
+        )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let client_proof =
-        connection_builder::build_solomachine_connection_proof(&raw_signature, time)?;
+        connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
 
     // construct consensus state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_builder::construct_solomachine_consensus_state_sign_bytes(
-        ConnectionMsgType::OpenTry,
-        &client_id,
-        sequence,
-        &sm_client_state,
-        &sm_consensus_state,
-    )?;
+    let (sign_bytes, time) =
+        connection_proof_builder::construct_solomachine_consensus_state_sign_bytes(
+            ConnectionMsgType::OpenTry,
+            &client_id,
+            sequence,
+            &sm_client_state,
+            &sm_consensus_state,
+        )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let (consensus_state_proof, consensus_height) =
-        connection_builder::build_solomachine_consensus_state_proof(
+        connection_proof_builder::build_solomachine_consensus_state_proof(
             ConnectionMsgType::OpenTry,
             &sm_client_state,
             &raw_signature,
@@ -419,12 +405,7 @@ async fn conn_open_try(
 // input: MsgConnectionOpenAck, conn_id, conn_end, client_id
 // output: connection_proofs
 #[update]
-async fn conn_open_ack(
-    msg: Vec<u8>,
-    // conn_id: String,
-    // conn_end: Vec<u8>,
-    // client_id: String,
-) -> Result<Proofs, String> {
+async fn conn_open_ack(msg: Vec<u8>) -> Result<Proofs, String> {
     let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
     let msg =
@@ -461,38 +442,40 @@ async fn conn_open_ack(
 
     // construct connection proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_builder::construct_solomachine_connection_sign_bytes(
+    let (sign_bytes, time) = connection_proof_builder::construct_solomachine_connection_sign_bytes(
         &conn_id, &conn_end, sequence,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
-        connection_builder::build_solomachine_connection_proof(&raw_signature, time)?;
+        connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
     let height = Height::new(0, sequence).expect("Construct height error");
 
     // construct client_state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_builder::construct_solomachine_client_state_sign_bytes(
-        ConnectionMsgType::OpenTry,
-        &client_id,
-        sequence,
-        &sm_client_state,
-    )?;
+    let (sign_bytes, time) =
+        connection_proof_builder::construct_solomachine_client_state_sign_bytes(
+            ConnectionMsgType::OpenTry,
+            &client_id,
+            sequence,
+            &sm_client_state,
+        )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let client_proof =
-        connection_builder::build_solomachine_connection_proof(&raw_signature, time)?;
+        connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
 
     // construct consensus state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_builder::construct_solomachine_consensus_state_sign_bytes(
-        ConnectionMsgType::OpenTry,
-        &client_id,
-        sequence,
-        &sm_client_state,
-        &sm_consensus_state,
-    )?;
+    let (sign_bytes, time) =
+        connection_proof_builder::construct_solomachine_consensus_state_sign_bytes(
+            ConnectionMsgType::OpenTry,
+            &client_id,
+            sequence,
+            &sm_client_state,
+            &sm_consensus_state,
+        )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let (consensus_state_proof, consensus_height) =
-        connection_builder::build_solomachine_consensus_state_proof(
+        connection_proof_builder::build_solomachine_consensus_state_proof(
             ConnectionMsgType::OpenTry,
             &sm_client_state,
             &raw_signature,
@@ -512,31 +495,12 @@ async fn conn_open_ack(
 }
 
 #[update]
-async fn conn_open_confirm(
-    msg: Vec<u8>,
-    // conn_id: String,
-    // conn_end: Vec<u8>,
-    // client_id: String,
-) -> Result<Proofs, String> {
+async fn conn_open_confirm(msg: Vec<u8>) -> Result<Proofs, String> {
     let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
     let msg = MsgConnectionOpenConfirm::decode_vec(&msg.value)
         .map_err(|_| "parse msg error".to_string())?;
     ic_cdk::println!("conn_open_confirm msg: {:?}", msg);
-
-    // let msg: MsgConnectionOpenAck = RawMsgConnectionOpenAck::decode(&msg[..])
-    //     .map_err(|_| "parse msg error".to_string())?
-    //     .try_into()
-    //     .map_err(|_| "parse msg error".to_string())?;
-
-    // let conn_id = ConnectionId::from_str(&conn_id).map_err(|_| "parse conn_id error")?;
-
-    // let conn_end: ConnectionEnd = RawConnectionEnd::decode(&conn_end[..])
-    //     .map_err(|_| "parse msg error".to_string())?
-    //     .try_into()
-    //     .map_err(|_| "parse msg error".to_string())?;
-
-    // let client_id = ClientId::from_str(&client_id).map_err(|_| "parse client_id error")?;
 
     // verify message
     let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
@@ -559,12 +523,12 @@ async fn conn_open_confirm(
 
     // construct connection proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_builder::construct_solomachine_connection_sign_bytes(
+    let (sign_bytes, time) = connection_proof_builder::construct_solomachine_connection_sign_bytes(
         &conn_id, &conn_end, sequence,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
-        connection_builder::build_solomachine_connection_proof(&raw_signature, time)?;
+        connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
     let height = Height::new(0, sequence).expect("Construct height error");
 
     let proofs = Proofs {
@@ -581,10 +545,11 @@ async fn conn_open_confirm(
 
 #[update]
 async fn chan_open_init(msg: Vec<u8>) -> Result<(), String> {
-    let msg: MsgChannelOpenInit = RawMsgChannelOpenInit::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
+
+    let msg =
+        MsgChannelOpenInit::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("channel open init msg: {:?}", msg);
 
     // verify message
     INSTANCE.with(|instance| {
@@ -601,27 +566,15 @@ async fn chan_open_init(msg: Vec<u8>) -> Result<(), String> {
 }
 
 #[update]
-async fn chan_open_try(
-    msg: Vec<u8>,
-    port_id: String,
-    chann_id: String,
-    chann_end: Vec<u8>,
-) -> Result<Proofs, String> {
-    let msg: MsgChannelOpenTry = RawMsgChannelOpenTry::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+async fn chan_open_try(msg: Vec<u8>) -> Result<Proofs, String> {
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
-    let port_id = PortId::from_str(&port_id).map_err(|_| "parse port_id error")?;
-    let chann_id = ChannelId::from_str(&chann_id).map_err(|_| "parse chann_id error")?;
-
-    let chann_end: ChannelEnd = RawChannelEnd::decode(&chann_end[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    let msg =
+        MsgChannelOpenTry::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("channel open try msg: {:?}", msg);
 
     // verify message
-    INSTANCE.with(|instance| {
+    let (port_id, chann_id, chann_end) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -633,11 +586,12 @@ async fn chan_open_try(
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = channel_builder::construct_solomachine_channel_sign_bytes(
+    let (sign_bytes, time) = channel_proof_builder::construct_solomachine_channel_sign_bytes(
         &port_id, &chann_id, &chann_end, sequence,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
-    let object_proof = channel_builder::build_solomachine_channel_proof(&raw_signature, time)?;
+    let object_proof =
+        channel_proof_builder::build_solomachine_channel_proof(&raw_signature, time)?;
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -652,27 +606,15 @@ async fn chan_open_try(
 }
 
 #[update]
-async fn chan_open_ack(
-    msg: Vec<u8>,
-    port_id: String,
-    chann_id: String,
-    chann_end: Vec<u8>,
-) -> Result<Proofs, String> {
-    let msg: MsgChannelOpenAck = RawMsgChannelOpenAck::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+async fn chan_open_ack(msg: Vec<u8>) -> Result<Proofs, String> {
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
-    let port_id = PortId::from_str(&port_id).map_err(|_| "parse port_id error")?;
-    let chann_id = ChannelId::from_str(&chann_id).map_err(|_| "parse chann_id error")?;
-
-    let chann_end: ChannelEnd = RawChannelEnd::decode(&chann_end[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    let msg =
+        MsgChannelOpenAck::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("channel open ack msg: {:?}", msg);
 
     // verify message
-    INSTANCE.with(|instance| {
+    let (port_id, chann_id, chann_end) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -684,11 +626,12 @@ async fn chan_open_ack(
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = channel_builder::construct_solomachine_channel_sign_bytes(
+    let (sign_bytes, time) = channel_proof_builder::construct_solomachine_channel_sign_bytes(
         &port_id, &chann_id, &chann_end, sequence,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
-    let object_proof = channel_builder::build_solomachine_channel_proof(&raw_signature, time)?;
+    let object_proof =
+        channel_proof_builder::build_solomachine_channel_proof(&raw_signature, time)?;
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -703,27 +646,15 @@ async fn chan_open_ack(
 }
 
 #[update]
-async fn chan_open_confirm(
-    msg: Vec<u8>,
-    port_id: String,
-    chann_id: String,
-    chann_end: Vec<u8>,
-) -> Result<Proofs, String> {
-    let msg: MsgChannelOpenConfirm = RawMsgChannelOpenConfirm::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+async fn chan_open_confirm(msg: Vec<u8>) -> Result<Proofs, String> {
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
 
-    let port_id = PortId::from_str(&port_id).map_err(|_| "parse port_id error")?;
-    let chann_id = ChannelId::from_str(&chann_id).map_err(|_| "parse chann_id error")?;
-
-    let chann_end: ChannelEnd = RawChannelEnd::decode(&chann_end[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    let msg =
+        MsgChannelOpenConfirm::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("channel open confirm msg: {:?}", msg);
 
     // verify message
-    INSTANCE.with(|instance| {
+    let (port_id, chann_id, chann_end) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -735,11 +666,12 @@ async fn chan_open_confirm(
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = channel_builder::construct_solomachine_channel_sign_bytes(
+    let (sign_bytes, time) = channel_proof_builder::construct_solomachine_channel_sign_bytes(
         &port_id, &chann_id, &chann_end, sequence,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
-    let object_proof = channel_builder::build_solomachine_channel_proof(&raw_signature, time)?;
+    let object_proof =
+        channel_proof_builder::build_solomachine_channel_proof(&raw_signature, time)?;
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -755,10 +687,11 @@ async fn chan_open_confirm(
 
 #[update]
 async fn chan_close_init(msg: Vec<u8>) -> Result<(), String> {
-    let msg: MsgChannelCloseInit = RawMsgChannelCloseInit::decode(&msg[..])
-        .map_err(|_| "parse msg error".to_string())?
-        .try_into()
-        .map_err(|_| "parse msg error".to_string())?;
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
+
+    let msg =
+        MsgChannelCloseInit::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("channel close init msg: {:?}", msg);
 
     // verify message
     INSTANCE.with(|instance| {
@@ -774,6 +707,82 @@ async fn chan_close_init(msg: Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
+#[update]
+async fn recv_packet(msg: Vec<u8>) -> Result<Proofs, String> {
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
+
+    let msg = MsgRecvPacket::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("recv packet msg: {:?}", msg);
+
+    // verify message
+    let (port_id, chann_id, packet) = INSTANCE.with(|instance| {
+        let mut instance = instance.borrow_mut();
+        instance
+            .verifier
+            .as_mut()
+            .ok_or("Verifier need set".to_string())?
+            .recv_packet(&msg)
+            .map_err(|_| "verify message error".to_string())
+    })?;
+
+    // construct channel proof
+    let sequence = get_sequence();
+    let (sign_bytes, time) = packet_proof_builder::construct_solomachine_recv_packet_sign_bytes(
+        &port_id, &chann_id, &packet, sequence,
+    )?;
+    let raw_signature = sign(sign_bytes).await?.signature;
+    let object_proof = packet_proof_builder::build_solomachine_packet_proof(&raw_signature, time)?;
+
+    let proofs = Proofs {
+        sm_client_state: vec![],
+        object_proof: object_proof.into(),
+        client_state_proof: vec![],
+        consensus_state_proof: vec![],
+        consensue_height: "".to_string(),
+        height: "".to_string(),
+    };
+
+    Ok(proofs)
+}
+
+#[update]
+async fn ack_packet(msg: Vec<u8>) -> Result<Proofs, String> {
+    let msg = Any::decode(msg.as_ref()).map_err(|_| "error".to_string())?;
+
+    let msg =
+        MsgAcknowledgement::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
+    ic_cdk::println!("recv packet msg: {:?}", msg);
+
+    // verify message
+    let (port_id, chann_id, packet) = INSTANCE.with(|instance| {
+        let mut instance = instance.borrow_mut();
+        instance
+            .verifier
+            .as_mut()
+            .ok_or("Verifier need set".to_string())?
+            .acknowledgement(&msg)
+            .map_err(|_| "verify message error".to_string())
+    })?;
+
+    // construct channel proof
+    let sequence = get_sequence();
+    let (sign_bytes, time) = packet_proof_builder::construct_solomachine_recv_packet_sign_bytes(
+        &port_id, &chann_id, &packet, sequence,
+    )?;
+    let raw_signature = sign(sign_bytes).await?.signature;
+    let object_proof = packet_proof_builder::build_solomachine_packet_proof(&raw_signature, time)?;
+
+    let proofs = Proofs {
+        sm_client_state: vec![],
+        object_proof: object_proof.into(),
+        client_state_proof: vec![],
+        consensus_state_proof: vec![],
+        consensue_height: "".to_string(),
+        height: "".to_string(),
+    };
+
+    Ok(proofs)
+}
 #[update]
 async fn test0() -> Result<(), String> {
     let raw_create_client = get_ibc0_create_client();
@@ -821,17 +830,25 @@ async fn test0() -> Result<(), String> {
         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
     ic_cdk::println!("sm header: {:?}", sm_header);
 
+    let raw_channel_open_try = get_ibc1_channel_open_try();
+    let proofs = chan_open_try(raw_channel_open_try).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
     let raw_update_client = get_ibc1_update_client5();
     let sm_header = update_client(raw_update_client).await?;
     let sm_header =
         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
     ic_cdk::println!("sm header: {:?}", sm_header);
 
+    let raw_chann_open_confirm = get_ibc1_channel_open_confirm();
+    let proofs = chan_open_confirm(raw_chann_open_confirm).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
     Ok(())
 }
 
 #[update]
-async fn test1() -> Result<(), String> {
+async fn test1() -> Result<Proofs, String> {
     let raw_create_client = get_ibc1_create_client();
 
     start()?;
@@ -864,11 +881,59 @@ async fn test1() -> Result<(), String> {
     let proofs = conn_open_ack(raw_connection_open_ack).await?;
     ic_cdk::println!("proofs: {:?}", proofs);
 
+    let raw_channel_open_init = get_ibc0_channel_open_init();
+    chan_open_init(raw_channel_open_init).await?;
+
     let raw_update_client = get_ibc0_update_client3();
     let sm_header = update_client(raw_update_client).await?;
     let sm_header =
         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    Ok(())
+    let raw_chann_open_ack = get_ibc0_channel_open_ack();
+    let proofs = chan_open_ack(raw_chann_open_ack).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
+
+    Ok(proofs)
+}
+
+#[update]
+async fn test2(s: Vec<u8>) -> Result<Vec<u8>, String> {
+    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
+    Ok(s)
+}
+
+#[update]
+async fn test3() -> Result<Vec<u8>, String> {
+    let s = vec![1, 2, 3, 4];
+    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
+    Ok(s)
+}
+
+#[update]
+async fn test4() -> Result<String, String> {
+    let s = vec![1, 2, 3, 4];
+    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
+    Ok("hello".to_string())
+}
+
+
+#[derive(CandidType, Deserialize)]
+struct Id{
+  id: String,
+}
+
+#[update]
+async fn test5() -> Result<Id, String> {
+    ic_cdk::println!("test5 +++++++++++++++++++++++");
+    let ret = Id{id: "test".to_string()};
+    Ok(ret)
+}
+
+#[update]
+async fn test6() -> String {
+    let s = vec![1, 2, 3, 4];
+    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
+    "hello".to_string()
 }

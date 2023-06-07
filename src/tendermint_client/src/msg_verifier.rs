@@ -574,7 +574,10 @@ impl MessageVerifier {
         Ok(())
     }
 
-    pub fn chan_open_try(&mut self, msg: &MsgChannelOpenTry) -> Result<(), ChannelError> {
+    pub fn chan_open_try(
+        &mut self,
+        msg: &MsgChannelOpenTry,
+    ) -> Result<(PortId, ChannelId, ChannelEnd), ChannelError> {
         // An IBC connection running on the local (host) chain should exist.
         if msg.connection_hops_on_b.len() != 1 {
             return Err(ChannelError::InvalidConnectionHopsLength {
@@ -600,6 +603,7 @@ impl MessageVerifier {
             return Err(ChannelError::ChannelFeatureNotSuportedByConnection);
         }
 
+        let expected_chan_end_on_a: ChannelEnd;
         // Verify proofs
         {
             let client_id_on_b = conn_end_on_b.client_id();
@@ -622,7 +626,7 @@ impl MessageVerifier {
                 });
             }
 
-            let expected_chan_end_on_a = ChannelEnd::new(
+            expected_chan_end_on_a = ChannelEnd::new(
                 ChState::Init,
                 msg.ordering,
                 ChCounterparty::new(msg.port_id_on_b.clone(), None),
@@ -670,10 +674,17 @@ impl MessageVerifier {
                 description: "Store channel error!".to_string(),
             })?;
 
-        Ok(())
+        Ok((
+            msg.port_id_on_a.clone(),
+            msg.chan_id_on_a.clone(),
+            expected_chan_end_on_a,
+        ))
     }
 
-    pub fn chan_open_ack(&mut self, msg: &MsgChannelOpenAck) -> Result<(), ChannelError> {
+    pub fn chan_open_ack(
+        &mut self,
+        msg: &MsgChannelOpenAck,
+    ) -> Result<(PortId, ChannelId, ChannelEnd), ChannelError> {
         let chan_end_on_a = self
             .chan_store
             .channel_end(&msg.port_id_on_a, &msg.chan_id_on_a)?;
@@ -703,6 +714,7 @@ impl MessageVerifier {
             });
         }
 
+        let expected_chan_end_on_b: ChannelEnd;
         // Verify proofs
         {
             let client_id_on_a = conn_end_on_a.client_id();
@@ -724,7 +736,7 @@ impl MessageVerifier {
                 });
             }
 
-            let expected_chan_end_on_b = ChannelEnd::new(
+            expected_chan_end_on_b = ChannelEnd::new(
                 ChState::TryOpen,
                 // Note: Both ends of a channel must have the same ordering, so it's
                 // fine to use A's ordering here
@@ -751,7 +763,7 @@ impl MessageVerifier {
 
         // Transition the channel end to the new state & pick a version.
         let new_chan_end_on_a = {
-            let mut chan_end_on_a = chan_end_on_a;
+            let mut chan_end_on_a = chan_end_on_a.clone();
 
             chan_end_on_a.set_state(ChState::Open);
             chan_end_on_a.set_version(msg.version_on_b.clone());
@@ -774,14 +786,22 @@ impl MessageVerifier {
                 description: "Store channel error!".to_string(),
             })?;
 
-        Ok(())
+        Ok((
+            chan_end_on_a.counterparty().port_id.clone(),
+            msg.chan_id_on_b.clone(),
+            expected_chan_end_on_b,
+        ))
     }
 
-    pub fn chan_open_confirm(&mut self, msg: &MsgChannelOpenConfirm) -> Result<(), ChannelError> {
+    pub fn chan_open_confirm(
+        &mut self,
+        msg: &MsgChannelOpenConfirm,
+    ) -> Result<(PortId, ChannelId, ChannelEnd), ChannelError> {
         let mut chan_end_on_b = self
             .chan_store
             .channel_end(&msg.port_id_on_b, &msg.chan_id_on_b)?;
 
+        ic_cdk::println!("open confirm ++++++++++++++++++++++++ 1");
         // Validate that the channel end is in a state where it can be confirmed.
         if !chan_end_on_b.state_matches(&ChState::TryOpen) {
             return Err(ChannelError::InvalidChannelState {
@@ -790,6 +810,7 @@ impl MessageVerifier {
             });
         }
 
+        ic_cdk::println!("open confirm ++++++++++++++++++++++++ 2");
         // An OPEN IBC connection running on the local (host) chain should exist.
         if chan_end_on_b.connection_hops().len() != 1 {
             return Err(ChannelError::InvalidConnectionHopsLength {
@@ -798,6 +819,7 @@ impl MessageVerifier {
             });
         }
 
+        ic_cdk::println!("open confirm ++++++++++++++++++++++++ 3");
         let conn_end_on_b = self.connection_end2(&chan_end_on_b.connection_hops()[0])?;
 
         if !conn_end_on_b.state_matches(&ConnectionState::Open) {
@@ -806,8 +828,9 @@ impl MessageVerifier {
             });
         }
 
+        ic_cdk::println!("open confirm ++++++++++++++++++++++++ 4");
         // Verify proofs
-        {
+        let (port_id_on_a, chan_id_on_a, expected_chan_end_on_a) = {
             let client_id_on_b = conn_end_on_b.client_id();
             let client_state_of_a_on_b = self.client_state2(client_id_on_b)?;
             let consensus_state_of_a_on_b =
@@ -824,6 +847,7 @@ impl MessageVerifier {
                 },
             )?;
 
+            ic_cdk::println!("open confirm ++++++++++++++++++++++++ 5");
             // The client must not be frozen.
             if client_state_of_a_on_b.is_frozen() {
                 return Err(ChannelError::FrozenClient {
@@ -839,6 +863,7 @@ impl MessageVerifier {
                 chan_end_on_b.version.clone(),
             );
 
+            ic_cdk::println!("open confirm ++++++++++++++++++++++++ 6");
             // Verify the proof for the channel state against the expected channel end.
             // A counterparty channel id of None in not possible, and is checked in msg.
             client_state_of_a_on_b
@@ -852,7 +877,14 @@ impl MessageVerifier {
                     &expected_chan_end_on_a,
                 )
                 .map_err(ChannelError::VerifyChannelFailed)?;
-        }
+
+            ic_cdk::println!("open confirm ++++++++++++++++++++++++ 7");
+            (
+                port_id_on_a.clone(),
+                chan_id_on_a.clone(),
+                expected_chan_end_on_a,
+            )
+        };
 
         // Transition the channel end to the new state.
         chan_end_on_b.set_state(ChState::Open);
@@ -861,7 +893,7 @@ impl MessageVerifier {
             port_id: msg.port_id_on_b.clone(),
             channel_id: msg.chan_id_on_b.clone(),
             channel_id_state: ChannelIdState::Reused,
-            channel_end: chan_end_on_b,
+            channel_end: chan_end_on_b.clone(),
         };
 
         // store
@@ -871,7 +903,7 @@ impl MessageVerifier {
                 description: "Store channel error!".to_string(),
             })?;
 
-        Ok(())
+        Ok((port_id_on_a, chan_id_on_a, expected_chan_end_on_a))
     }
 
     pub fn chan_close_init(&mut self, msg: &MsgChannelCloseInit) -> Result<(), ChannelError> {
@@ -928,7 +960,10 @@ impl MessageVerifier {
 
 // For Packet Message
 impl MessageVerifier {
-    pub fn recv_packet(&mut self, msg: &MsgRecvPacket) -> Result<(), PacketError> {
+    pub fn recv_packet(
+        &mut self,
+        msg: &MsgRecvPacket,
+    ) -> Result<(PortId, ChannelId, Vec<u8>), PacketError> {
         let chan_end_on_b = self
             .chan_store
             .channel_end(&msg.packet.port_on_b, &msg.packet.chan_on_b)
@@ -978,6 +1013,7 @@ impl MessageVerifier {
         //     return Err(PacketError::LowPacketTimestamp);
         // }
 
+        let expected_commitment_on_a;
         // Verify proofs
         {
             let client_id_on_b = conn_end_on_b.client_id();
@@ -996,7 +1032,7 @@ impl MessageVerifier {
                 .client_consensus_state2(client_id_on_b, &msg.proof_height_on_a)
                 .map_err(PacketError::Channel)?;
 
-            let expected_commitment_on_a = self.chan_store.packet_commitment(
+            expected_commitment_on_a = self.chan_store.packet_commitment(
                 &msg.packet.data,
                 &msg.packet.timeout_height_on_b,
                 &msg.packet.timeout_timestamp_on_b,
@@ -1012,7 +1048,7 @@ impl MessageVerifier {
                     &msg.packet.port_on_a,
                     &msg.packet.chan_on_a,
                     msg.packet.sequence,
-                    expected_commitment_on_a,
+                    expected_commitment_on_a.clone(),
                 )
                 .map_err(|e| ChannelError::PacketVerificationFailed {
                     sequence: msg.packet.sequence,
@@ -1066,11 +1102,20 @@ impl MessageVerifier {
         };
 
         // store
-        self.chan_store.store_packet_result(result)
+        self.chan_store.store_packet_result(result)?;
+
+        Ok((
+            msg.packet.port_on_a.clone(),
+            msg.packet.chan_on_a.clone(),
+            expected_commitment_on_a.into_vec(),
+        ))
     }
 
     // PacketMsg::Ack(msg) => acknowledgement::process(ctx, msg),
-    pub fn acknowledgement(&mut self, msg: &MsgAcknowledgement) -> Result<(), PacketError> {
+    pub fn acknowledgement(
+        &mut self,
+        msg: &MsgAcknowledgement,
+    ) -> Result<(PortId, ChannelId, Vec<u8>), PacketError> {
         let packet = &msg.packet;
         let chan_end_on_a = self
             .chan_store
@@ -1123,6 +1168,7 @@ impl MessageVerifier {
             });
         }
 
+        let ack_commitment;
         // Verify proofs
         {
             let client_id_on_a = conn_end_on_a.client_id();
@@ -1141,7 +1187,7 @@ impl MessageVerifier {
                 .client_consensus_state2(client_id_on_a, &msg.proof_height_on_b)
                 .map_err(PacketError::Channel)?;
 
-            let ack_commitment = self.chan_store.ack_commitment(&msg.acknowledgement);
+            ack_commitment = self.chan_store.ack_commitment(&msg.acknowledgement);
 
             // Verify the proof for the packet against the chain store.
             client_state_on_a
@@ -1153,7 +1199,7 @@ impl MessageVerifier {
                     &packet.port_on_b,
                     &packet.chan_on_b,
                     packet.sequence,
-                    ack_commitment,
+                    ack_commitment.clone(),
                 )
                 .map_err(|e| ChannelError::PacketVerificationFailed {
                     sequence: packet.sequence,
@@ -1190,7 +1236,13 @@ impl MessageVerifier {
         };
 
         // store
-        self.chan_store.store_packet_result(result)
+        self.chan_store.store_packet_result(result)?;
+
+        Ok((
+            packet.port_on_b.clone(),
+            packet.chan_on_b.clone(),
+            ack_commitment.into_vec(),
+        ))
     }
 
     // PacketMsg::Timeout(msg) => timeout::process(ctx, msg),
