@@ -10,6 +10,7 @@ pub mod msg_verifier;
 pub mod packet_proof_builder;
 mod prelude;
 pub mod solomachine;
+pub mod solomachine_counter;
 pub mod solomachine_store;
 mod tendermint_client;
 mod tm_client_state;

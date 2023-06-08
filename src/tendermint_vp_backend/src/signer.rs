@@ -60,11 +60,15 @@ pub enum EcdsaCurve {
     Secp256k1,
 }
 
+const KEY: EcdsaKeyIds = EcdsaKeyIds::TestKeyLocalDevelopment;
+// const KEY: EcdsaKeyIds = EcdsaKeyIds::TestKey1;
+// const KEY: EcdsaKeyIds = EcdsaKeyIds::ProductionKey1;
+
 pub async fn public_key() -> Result<PublicKeyReply, String> {
     let request = ECDSAPublicKey {
         canister_id: None,
         derivation_path: vec![],
-        key_id: EcdsaKeyIds::TestKeyLocalDevelopment.to_key_id(),
+        key_id: KEY.to_key_id(),
     };
 
     let (res,): (ECDSAPublicKeyReply,) =
@@ -81,7 +85,7 @@ pub async fn sign(message: &[u8]) -> Result<SignatureReply, String> {
     let request = SignWithECDSA {
         message_hash: hash(message),
         derivation_path: vec![],
-        key_id: EcdsaKeyIds::TestKeyLocalDevelopment.to_key_id(),
+        key_id: KEY.to_key_id(),
     };
 
     let (response,): (SignWithECDSAReply,) = ic_cdk::api::call::call_with_payment(
