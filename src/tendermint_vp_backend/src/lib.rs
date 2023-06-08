@@ -17,6 +17,7 @@ use tendermint_client::packet_proof_builder;
 use tendermint_client::solomachine::client_state::ClientState as SmClientState;
 use tendermint_client::solomachine::consensus_state::ConsensusState as SmConsensusState;
 use tendermint_client::solomachine_store::SoloMachineStateStores;
+use tendermint_client::solomachine_counter::SoloMachineCounter;
 use tendermint_client::types::ConnectionMsgType;
 
 use ibc::core::{
@@ -97,10 +98,12 @@ struct TendermintInstance {
     owner: Option<Principal>,
     verifier: Option<MessageVerifier>,
     solo_store: Option<SoloMachineStateStores>,
+    solo_counter: Option<SoloMachineCounter>,
+
 }
 
 thread_local! {
-    static INSTANCE: RefCell<TendermintInstance> = RefCell::new(TendermintInstance { owner: None, verifier: None, solo_store: None});
+    static INSTANCE: RefCell<TendermintInstance> = RefCell::new(TendermintInstance { owner: None, verifier: None, solo_store: None, solo_counter: None});
 }
 
 #[init]
@@ -120,16 +123,34 @@ fn start() -> Result<(), String> {
     ic_cdk::print("start!");
     INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
-        // if instance.verifier.is_none()
+        if instance.verifier.is_none()
         {
             instance.verifier = Some(MessageVerifier::new())
         }
-        // if instance.solo_store.is_none()
+        if instance.solo_store.is_none()
         {
             instance.solo_store = Some(SoloMachineStateStores::new())
         }
+        if instance.solo_counter.is_none()
+        {
+            instance.solo_counter = Some(SoloMachineCounter::new(1u64))
+        }
     });
     ic_cdk::print("Start ok!");
+
+    Ok(())
+}
+
+#[update]
+fn restart() -> Result<(), String> {
+    ic_cdk::print("restart!");
+    INSTANCE.with(|instance| {
+        let mut instance = instance.borrow_mut();
+            instance.verifier = Some(MessageVerifier::new());
+            instance.solo_store = Some(SoloMachineStateStores::new());
+            instance.solo_counter = Some(SoloMachineCounter::new(1u64))
+    });
+    ic_cdk::print("restart ok!");
 
     Ok(())
 }
@@ -143,23 +164,23 @@ pub struct SmState {
 fn get_sequence() -> u64 {
     let sequence = INSTANCE.with(|instance| {
         let instance = instance.borrow();
-        instance
-            .verifier
+        instance.solo_counter
             .as_ref()
             .expect("Verifier need set")
-            .sequence_cnt
+            .sequence_cnt()
     });
 
     increase_sequence();
 
+    ic_cdk::println!("sequence is : {:?}", sequence);
     sequence
 }
 
 fn increase_sequence() {
-    INSTANCE.with(|instance| {
+    let _ = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
-            .verifier
+            .solo_counter
             .as_mut()
             .expect("Verifier need set")
             .increase_sequence()
@@ -787,7 +808,7 @@ async fn ack_packet(msg: Vec<u8>) -> Result<Proofs, String> {
 async fn test0() -> Result<(), String> {
     let raw_create_client = get_ibc0_create_client();
 
-    start()?;
+    restart()?;
     let sm_state = create_client(raw_create_client).await?;
     ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
     let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
@@ -851,7 +872,7 @@ async fn test0() -> Result<(), String> {
 async fn test1() -> Result<Proofs, String> {
     let raw_create_client = get_ibc1_create_client();
 
-    start()?;
+    restart()?;
     let sm_state = create_client(raw_create_client).await?;
     ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
     let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
@@ -896,44 +917,4 @@ async fn test1() -> Result<Proofs, String> {
 
 
     Ok(proofs)
-}
-
-#[update]
-async fn test2(s: Vec<u8>) -> Result<Vec<u8>, String> {
-    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
-    Ok(s)
-}
-
-#[update]
-async fn test3() -> Result<Vec<u8>, String> {
-    let s = vec![1, 2, 3, 4];
-    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
-    Ok(s)
-}
-
-#[update]
-async fn test4() -> Result<String, String> {
-    let s = vec![1, 2, 3, 4];
-    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
-    Ok("hello".to_string())
-}
-
-
-#[derive(CandidType, Deserialize)]
-struct Id{
-  id: String,
-}
-
-#[update]
-async fn test5() -> Result<Id, String> {
-    ic_cdk::println!("test5 +++++++++++++++++++++++");
-    let ret = Id{id: "test".to_string()};
-    Ok(ret)
-}
-
-#[update]
-async fn test6() -> String {
-    let s = vec![1, 2, 3, 4];
-    ic_cdk::println!("test2 +++++++++++++++++++++++: {:?}", s);
-    "hello".to_string()
 }

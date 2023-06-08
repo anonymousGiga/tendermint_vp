@@ -76,7 +76,6 @@ pub struct MessageVerifier {
     client_ids_counter: u64,
     conn_store: ConnectionStore,
     chan_store: ChannelStore,
-    pub sequence_cnt: u64,
 }
 
 impl MessageVerifier {
@@ -86,12 +85,7 @@ impl MessageVerifier {
             client_ids_counter: 1u64,
             conn_store: ConnectionStore::new(),
             chan_store: ChannelStore::new(),
-            sequence_cnt: 1u64,
         }
-    }
-
-    pub fn increase_sequence(&mut self) {
-        self.sequence_cnt += 1;
     }
 }
 

@@ -12,14 +12,13 @@ type Proofs = record {
   consensus_state_proof: vec nat8;
 };
 
-type Id = record {
-  id: text;
-};
-
 service : {
   public_key : () -> (variant { Ok: record { public_key_hex: text; }; Err: text });
   sign : (vec nat8) -> (variant { Ok: record { signature_hex: text; }; Err: text });
   verify : (text, text, text) -> (variant { Ok: record { is_signature_valid: bool; }; Err: text });
+
+  start: () -> (variant { Ok: null; Err: text });
+  restart: () -> (variant { Ok: null; Err: text });
 
   create_client: (vec nat8) -> (variant { Ok: SmState; Err: text });
   update_client: (vec nat8) -> (variant { Ok: vec nat8; Err: text });
@@ -35,11 +34,9 @@ service : {
   chan_open_confirm: (vec nat8, text, text, vec nat8) -> (variant { Ok: Proofs; Err: text });
   chan_close_init: (vec nat8) -> (variant { Ok: null; Err: text });
 
+  recv_packet: (vec nat8) -> (variant { Ok: Proofs; Err: text });
+  ack_packet: (vec nat8) -> (variant { Ok: Proofs; Err: text });
+
   test0: () -> (variant { Ok: null; Err: text });
   test1: () -> (variant { Ok: Proofs; Err: text });
-  test2: (vec nat8) -> (variant { Ok: vec nat8; Err: text });
-  test3: () -> (variant { Ok: vec nat8; Err: text });
-  test4: () -> (variant { Ok: text; Err: text });
-  test5: () -> (variant { Ok: Id; Err: text });
-  test6: () -> (text );
 }

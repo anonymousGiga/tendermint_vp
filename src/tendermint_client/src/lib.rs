@@ -15,3 +15,4 @@ mod tendermint_client;
 mod tm_client_state;
 pub mod types;
 mod utils;
+pub mod solomachine_counter;
