@@ -57,7 +57,8 @@ pub fn construct_solomachine_recv_packet_sign_bytes(
     channel_id: &ChannelId,
     packet: &[u8],
     sequence: u64,
-) -> Result<(Vec<u8>, u64), String> {
+    time: u64,
+) -> Result<Vec<u8>, String> {
     let data = PacketCommitmentData {
         path: ("/ibc/commitments%2Fports%2F".to_string()
             + port_id.as_str()
@@ -70,10 +71,10 @@ pub fn construct_solomachine_recv_packet_sign_bytes(
     }
     .encode_to_vec();
 
-    let time = time();
+    // let time = time();
     let sign_bytes = utils::construct_sign_bytes(sequence, time, DataType::PacketCommitment, data)?;
 
-    Ok((sign_bytes, time))
+    Ok(sign_bytes)
 }
 
 pub fn construct_solomachine_ack_packet_sign_bytes(
@@ -81,7 +82,8 @@ pub fn construct_solomachine_ack_packet_sign_bytes(
     channel_id: &ChannelId,
     packet: Vec<u8>,
     sequence: u64,
-) -> Result<(Vec<u8>, u64), String> {
+    time: u64,
+) -> Result<Vec<u8>, String> {
     let data = PacketAcknowledgementData {
         path: ("/ibc/acks%2Fports%2F".to_string()
             + port_id.as_str()
@@ -94,11 +96,11 @@ pub fn construct_solomachine_ack_packet_sign_bytes(
     }
     .encode_to_vec();
 
-    let time = time();
+    // let time = time();
     let sign_bytes =
         utils::construct_sign_bytes(sequence, time, DataType::PacketAcknowledgement, data)?;
 
-    Ok((sign_bytes, time))
+    Ok(sign_bytes)
 }
 
 pub fn build_solomachine_packet_proof(

@@ -71,3 +71,27 @@ impl SoloMachineStateStores {
         Ok(cs.clone())
     }
 }
+
+pub struct SequenceAndTimeStore {
+    sequence_time: HashMap<u64, u64>,
+}
+
+impl SequenceAndTimeStore {
+    pub fn new() -> Self {
+        SequenceAndTimeStore {
+            sequence_time: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, sequence: u64, time: u64) {
+        ic_cdk::println!("insert (sequence: {:?}, time: {:?})", sequence, time);
+        self.sequence_time.insert(sequence, time);
+    }
+
+    pub fn get_sequence_time(&self, sequence: u64) -> Result<u64, String> {
+        self.sequence_time
+            .get(&sequence)
+            .map(|time| *time)
+            .ok_or("Not found!".to_string())
+    }
+}

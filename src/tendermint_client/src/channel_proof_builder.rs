@@ -58,7 +58,8 @@ pub fn construct_solomachine_channel_sign_bytes(
     channel_id: &ChannelId,
     channel_end: &ChannelEnd,
     sequence: u64,
-) -> Result<(Vec<u8>, u64), String> {
+    time: u64,
+) -> Result<Vec<u8>, String> {
     let data = ChannelStateData {
         path: ("/ibc/channelEnds%2Fports%2F".to_string()
             + port_id.as_str()
@@ -69,10 +70,10 @@ pub fn construct_solomachine_channel_sign_bytes(
     }
     .encode_to_vec();
 
-    let time = time();
+    // let time = time();
     let sign_bytes = utils::construct_sign_bytes(sequence, time, DataType::ChannelState, data)?;
 
-    Ok((sign_bytes, time))
+    Ok(sign_bytes)
 }
 
 pub fn build_solomachine_channel_proof(

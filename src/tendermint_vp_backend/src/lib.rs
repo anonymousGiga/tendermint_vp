@@ -17,9 +17,12 @@ use tendermint_client::packet_proof_builder;
 use tendermint_client::solomachine::client_state::ClientState as SmClientState;
 use tendermint_client::solomachine::consensus_state::ConsensusState as SmConsensusState;
 use tendermint_client::solomachine_counter::SoloMachineCounter;
+use tendermint_client::solomachine_store::SequenceAndTimeStore;
 use tendermint_client::solomachine_store::SoloMachineStateStores;
+
 use tendermint_client::types::ConnectionMsgType;
 
+use ibc::core::ics02_client::consensus_state::ConsensusState;
 use ibc::core::{
     ics02_client::msgs::update_client::MsgUpdateClient,
     ics03_connection::handler::conn_open_confirm,
@@ -76,8 +79,9 @@ mod mock_data;
 pub mod signer;
 
 #[update]
-async fn public_key() -> Result<PublicKeyReply, String> {
-    signer::public_key().await
+async fn public_key() -> Result<Vec<u8>, String> {
+    let ret = signer::public_key().await?;
+    Ok(ret.public_key)
 }
 
 #[update]
@@ -99,10 +103,11 @@ struct TendermintInstance {
     verifier: Option<MessageVerifier>,
     solo_store: Option<SoloMachineStateStores>,
     solo_counter: Option<SoloMachineCounter>,
+    sequence_times: Option<SequenceAndTimeStore>,
 }
 
 thread_local! {
-    static INSTANCE: RefCell<TendermintInstance> = RefCell::new(TendermintInstance { owner: None, verifier: None, solo_store: None, solo_counter: None});
+    static INSTANCE: RefCell<TendermintInstance> = RefCell::new(TendermintInstance { owner: None, verifier: None, solo_store: None, solo_counter: None, sequence_times: None});
 }
 
 #[init]
@@ -131,6 +136,12 @@ fn start() -> Result<(), String> {
         if instance.solo_counter.is_none() {
             instance.solo_counter = Some(SoloMachineCounter::new(1u64))
         }
+        if instance.owner.is_none() {
+            ic_cdk::print("Start error: owner should not empty");
+        }
+        if instance.sequence_times.is_none() {
+            instance.sequence_times = Some(SequenceAndTimeStore::new())
+        }
     });
     ic_cdk::print("Start ok!");
 
@@ -156,11 +167,35 @@ fn restart() -> Result<(), String> {
         let mut instance = instance.borrow_mut();
         instance.verifier = Some(MessageVerifier::new());
         instance.solo_store = Some(SoloMachineStateStores::new());
-        instance.solo_counter = Some(SoloMachineCounter::new(1u64))
+        instance.solo_counter = Some(SoloMachineCounter::new(1u64));
+        instance.sequence_times = Some(SequenceAndTimeStore::new());
     });
     ic_cdk::print("restart ok!");
 
     Ok(())
+}
+
+fn update_sequence_times(sequence: u64, time: u64) {
+    INSTANCE.with(|instance| {
+        let mut instance = instance.borrow_mut();
+        instance
+            .sequence_times
+            .as_mut()
+            .expect("Need start first!")
+            .insert(sequence, time)
+    });
+}
+
+#[query]
+fn get_sequence_times(sequence: u64) -> Result<u64, String> {
+    INSTANCE.with(|instance| {
+        let instance = instance.borrow();
+        instance
+            .sequence_times
+            .as_ref()
+            .expect("Need start first!")
+            .get_sequence_time(sequence)
+    })
 }
 
 #[derive(CandidType, Deserialize, Clone, Default)]
@@ -205,7 +240,7 @@ async fn create_client(msg: Vec<u8>) -> Result<SmState, String> {
 
     ic_cdk::println!("msg: {:?}", msg);
 
-    let pk = public_key().await.unwrap().public_key;
+    let pk = public_key().await.expect("Pubkey should exist!");
 
     let (client_id, tm_client_state, tm_consensus_state) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
@@ -224,9 +259,11 @@ async fn create_client(msg: Vec<u8>) -> Result<SmState, String> {
         &tm_consensus_state,
         &pk[..],
     )?;
-
     let sm_consensus_state =
         header_builder::build_solomachine_consensus_state(&pk[..], &tm_consensus_state)?;
+
+    let time: u64 = tm_consensus_state.timestamp().nanoseconds();
+    update_sequence_times(sequence, time);
 
     INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
@@ -257,7 +294,7 @@ async fn update_client(msg: Vec<u8>) -> Result<Vec<u8>, String> {
     let msg = MsgUpdateClient::decode_vec(&msg.value).map_err(|_| "parse msg error".to_string())?;
     ic_cdk::println!("update client  msg: {:?}", msg);
 
-    let pk = public_key().await.unwrap().public_key;
+    let pk = public_key().await.expect("Pubkey should exist!");
 
     let (client_id, tm_client_state, tm_consensus_state) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
@@ -287,6 +324,9 @@ async fn update_client(msg: Vec<u8>) -> Result<Vec<u8>, String> {
 
     let sm_consensus_state =
         header_builder::build_solomachine_consensus_state(&pk[..], &tm_consensus_state)?;
+
+    let time: u64 = tm_consensus_state.timestamp().nanoseconds();
+    update_sequence_times(sequence, time);
 
     INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
@@ -351,7 +391,7 @@ async fn conn_open_try(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("conn_open_try msg: {:?}", msg);
 
     // verify message
-    let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
+    let (client_id, conn_id, conn_end, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -380,37 +420,39 @@ async fn conn_open_try(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct connection proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_proof_builder::construct_solomachine_connection_sign_bytes(
-        &conn_id, &conn_end, sequence,
+    let sign_bytes = connection_proof_builder::construct_solomachine_connection_sign_bytes(
+        &conn_id, &conn_end, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
         connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
     let height = Height::new(0, sequence).expect("Construct height error");
+    update_sequence_times(sequence, time);
 
     // construct client_state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) =
-        connection_proof_builder::construct_solomachine_client_state_sign_bytes(
-            ConnectionMsgType::OpenTry,
-            &client_id,
-            sequence,
-            &sm_client_state,
-        )?;
+    let sign_bytes = connection_proof_builder::construct_solomachine_client_state_sign_bytes(
+        ConnectionMsgType::OpenTry,
+        &client_id,
+        sequence,
+        &sm_client_state,
+        time,
+    )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let client_proof =
         connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
+    update_sequence_times(sequence, time);
 
     // construct consensus state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) =
-        connection_proof_builder::construct_solomachine_consensus_state_sign_bytes(
-            ConnectionMsgType::OpenTry,
-            &client_id,
-            sequence,
-            &sm_client_state,
-            &sm_consensus_state,
-        )?;
+    let sign_bytes = connection_proof_builder::construct_solomachine_consensus_state_sign_bytes(
+        ConnectionMsgType::OpenTry,
+        &client_id,
+        sequence,
+        &sm_client_state,
+        &sm_consensus_state,
+        time,
+    )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let (consensus_state_proof, consensus_height) =
         connection_proof_builder::build_solomachine_consensus_state_proof(
@@ -419,6 +461,7 @@ async fn conn_open_try(msg: Vec<u8>) -> Result<Proofs, String> {
             &raw_signature,
             time,
         )?;
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: RawSmClientState::from(sm_client_state).encode_to_vec(),
@@ -443,7 +486,7 @@ async fn conn_open_ack(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("conn_open_ack msg: {:?}", msg);
 
     // verify message
-    let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
+    let (client_id, conn_id, conn_end, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -472,37 +515,39 @@ async fn conn_open_ack(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct connection proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_proof_builder::construct_solomachine_connection_sign_bytes(
-        &conn_id, &conn_end, sequence,
+    let sign_bytes = connection_proof_builder::construct_solomachine_connection_sign_bytes(
+        &conn_id, &conn_end, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
         connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
     let height = Height::new(0, sequence).expect("Construct height error");
+    update_sequence_times(sequence, time);
 
     // construct client_state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) =
-        connection_proof_builder::construct_solomachine_client_state_sign_bytes(
-            ConnectionMsgType::OpenTry,
-            &client_id,
-            sequence,
-            &sm_client_state,
-        )?;
+    let sign_bytes = connection_proof_builder::construct_solomachine_client_state_sign_bytes(
+        ConnectionMsgType::OpenTry,
+        &client_id,
+        sequence,
+        &sm_client_state,
+        time,
+    )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let client_proof =
         connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
+    update_sequence_times(sequence, time);
 
     // construct consensus state proof
     let sequence = get_sequence();
-    let (sign_bytes, time) =
-        connection_proof_builder::construct_solomachine_consensus_state_sign_bytes(
-            ConnectionMsgType::OpenTry,
-            &client_id,
-            sequence,
-            &sm_client_state,
-            &sm_consensus_state,
-        )?;
+    let sign_bytes = connection_proof_builder::construct_solomachine_consensus_state_sign_bytes(
+        ConnectionMsgType::OpenTry,
+        &client_id,
+        sequence,
+        &sm_client_state,
+        &sm_consensus_state,
+        time,
+    )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let (consensus_state_proof, consensus_height) =
         connection_proof_builder::build_solomachine_consensus_state_proof(
@@ -511,6 +556,7 @@ async fn conn_open_ack(msg: Vec<u8>) -> Result<Proofs, String> {
             &raw_signature,
             time,
         )?;
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: RawSmClientState::from(sm_client_state).encode_to_vec(),
@@ -533,7 +579,7 @@ async fn conn_open_confirm(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("conn_open_confirm msg: {:?}", msg);
 
     // verify message
-    let (client_id, conn_id, conn_end) = INSTANCE.with(|instance| {
+    let (client_id, conn_id, conn_end, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -553,13 +599,14 @@ async fn conn_open_confirm(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct connection proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = connection_proof_builder::construct_solomachine_connection_sign_bytes(
-        &conn_id, &conn_end, sequence,
+    let sign_bytes = connection_proof_builder::construct_solomachine_connection_sign_bytes(
+        &conn_id, &conn_end, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
         connection_proof_builder::build_solomachine_connection_proof(&raw_signature, time)?;
     let height = Height::new(0, sequence).expect("Construct height error");
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: RawSmClientState::from(sm_client_state).encode_to_vec(),
@@ -604,7 +651,7 @@ async fn chan_open_try(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("channel open try msg: {:?}", msg);
 
     // verify message
-    let (port_id, chann_id, chann_end) = INSTANCE.with(|instance| {
+    let (port_id, chann_id, chann_end, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -615,12 +662,13 @@ async fn chan_open_try(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = channel_proof_builder::construct_solomachine_channel_sign_bytes(
-        &port_id, &chann_id, &chann_end, sequence,
+    let sign_bytes = channel_proof_builder::construct_solomachine_channel_sign_bytes(
+        &port_id, &chann_id, &chann_end, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
         channel_proof_builder::build_solomachine_channel_proof(&raw_signature, time)?;
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -643,7 +691,7 @@ async fn chan_open_ack(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("channel open ack msg: {:?}", msg);
 
     // verify message
-    let (port_id, chann_id, chann_end) = INSTANCE.with(|instance| {
+    let (port_id, chann_id, chann_end, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -655,12 +703,13 @@ async fn chan_open_ack(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = channel_proof_builder::construct_solomachine_channel_sign_bytes(
-        &port_id, &chann_id, &chann_end, sequence,
+    let sign_bytes = channel_proof_builder::construct_solomachine_channel_sign_bytes(
+        &port_id, &chann_id, &chann_end, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
         channel_proof_builder::build_solomachine_channel_proof(&raw_signature, time)?;
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -683,7 +732,7 @@ async fn chan_open_confirm(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("channel open confirm msg: {:?}", msg);
 
     // verify message
-    let (port_id, chann_id, chann_end) = INSTANCE.with(|instance| {
+    let (port_id, chann_id, chann_end, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -695,12 +744,13 @@ async fn chan_open_confirm(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = channel_proof_builder::construct_solomachine_channel_sign_bytes(
-        &port_id, &chann_id, &chann_end, sequence,
+    let sign_bytes = channel_proof_builder::construct_solomachine_channel_sign_bytes(
+        &port_id, &chann_id, &chann_end, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof =
         channel_proof_builder::build_solomachine_channel_proof(&raw_signature, time)?;
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -744,7 +794,7 @@ async fn recv_packet(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("recv packet msg: {:?}", msg);
 
     // verify message
-    let (port_id, chann_id, packet) = INSTANCE.with(|instance| {
+    let (port_id, chann_id, packet, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -756,11 +806,12 @@ async fn recv_packet(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = packet_proof_builder::construct_solomachine_recv_packet_sign_bytes(
-        &port_id, &chann_id, &packet, sequence,
+    let sign_bytes = packet_proof_builder::construct_solomachine_recv_packet_sign_bytes(
+        &port_id, &chann_id, &packet, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof = packet_proof_builder::build_solomachine_packet_proof(&raw_signature, time)?;
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -783,7 +834,7 @@ async fn ack_packet(msg: Vec<u8>) -> Result<Proofs, String> {
     ic_cdk::println!("recv packet msg: {:?}", msg);
 
     // verify message
-    let (port_id, chann_id, packet) = INSTANCE.with(|instance| {
+    let (port_id, chann_id, packet, time) = INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
         instance
             .verifier
@@ -795,11 +846,12 @@ async fn ack_packet(msg: Vec<u8>) -> Result<Proofs, String> {
 
     // construct channel proof
     let sequence = get_sequence();
-    let (sign_bytes, time) = packet_proof_builder::construct_solomachine_recv_packet_sign_bytes(
-        &port_id, &chann_id, &packet, sequence,
+    let sign_bytes = packet_proof_builder::construct_solomachine_recv_packet_sign_bytes(
+        &port_id, &chann_id, &packet, sequence, time,
     )?;
     let raw_signature = sign(sign_bytes).await?.signature;
     let object_proof = packet_proof_builder::build_solomachine_packet_proof(&raw_signature, time)?;
+    update_sequence_times(sequence, time);
 
     let proofs = Proofs {
         sm_client_state: vec![],
@@ -812,6 +864,21 @@ async fn ack_packet(msg: Vec<u8>) -> Result<Proofs, String> {
 
     Ok(proofs)
 }
+
+#[pre_upgrade]
+fn pre_upgrade() {
+    ic_cdk::println!("Need storage something!");
+}
+
+#[post_upgrade]
+fn post_upgrade() {
+    ic_cdk::println!("Need restore something frome storage!");
+    INSTANCE.with(|instance| {
+        let mut instance = instance.borrow_mut();
+        instance.owner = Some(ic_cdk::api::caller());
+    });
+}
+
 #[update]
 async fn test0() -> Result<(), String> {
     let raw_create_client = get_ibc0_create_client();
@@ -872,6 +939,9 @@ async fn test0() -> Result<(), String> {
     let raw_chann_open_confirm = get_ibc1_channel_open_confirm();
     let proofs = chan_open_confirm(raw_chann_open_confirm).await?;
     ic_cdk::println!("proofs: {:?}", proofs);
+
+    let time = get_sequence_times(1)?;
+    ic_cdk::println!("time: {:?}", time);
 
     Ok(())
 }

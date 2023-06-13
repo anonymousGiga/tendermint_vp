@@ -55,16 +55,17 @@ pub fn construct_solomachine_connection_sign_bytes(
     connection_id: &ConnectionId,
     connection_end: &ConnectionEnd,
     sequence: u64,
-) -> Result<(Vec<u8>, u64), String> {
+    time: u64,
+) -> Result<Vec<u8>, String> {
     let data = ConnectionStateData {
         path: ("/ibc/connections%2F".to_string() + connection_id.as_str()).into(),
         connection: Some(connection_end.clone().into()),
     }
     .encode_to_vec();
-    let time = time();
+    // let time = time();
     let sign_bytes = utils::construct_sign_bytes(sequence, time, DataType::ConnectionState, data)?;
 
-    Ok((sign_bytes, time))
+    Ok(sign_bytes)
 }
 
 pub fn build_solomachine_connection_proof(
@@ -107,7 +108,8 @@ pub fn construct_solomachine_client_state_sign_bytes(
     client_id: &ClientId,
     sequence: u64,
     client_state: &SmClientState,
-) -> Result<(Vec<u8>, u64), String> {
+    time: u64,
+) -> Result<Vec<u8>, String> {
     match message_type {
         types::ConnectionMsgType::OpenTry | types::ConnectionMsgType::OpenAck => {
             let data = ClientStateData {
@@ -119,11 +121,11 @@ pub fn construct_solomachine_client_state_sign_bytes(
             }
             .encode_to_vec();
 
-            let time = time();
+            // let time = time();
             let sign_bytes =
                 utils::construct_sign_bytes(sequence, time, DataType::ClientState, data)?;
 
-            return Ok((sign_bytes, time));
+            return Ok(sign_bytes);
         }
         _ => return Err("Other connection msg's proof should emplty".to_string()),
     }
@@ -175,7 +177,8 @@ pub fn construct_solomachine_consensus_state_sign_bytes(
     sequence: u64,
     client_state: &SmClientState,
     consensus_state: &SmConsensusState,
-) -> Result<(Vec<u8>, u64), String> {
+    time: u64,
+) -> Result<Vec<u8>, String> {
     match message_type {
         types::ConnectionMsgType::OpenTry | types::ConnectionMsgType::OpenAck => {
             let data = ConsensusStateData {
@@ -188,11 +191,11 @@ pub fn construct_solomachine_consensus_state_sign_bytes(
             }
             .encode_to_vec();
 
-            let time = time();
+            // let time = time();
             let sign_bytes =
                 utils::construct_sign_bytes(sequence, time, DataType::ConsensusState, data)?;
 
-            return Ok((sign_bytes, time));
+            return Ok(sign_bytes);
         }
         _ => return Err("Other connection msg's proof should emplty".to_string()),
     }
