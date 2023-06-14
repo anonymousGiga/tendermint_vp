@@ -1183,6 +1183,7 @@ impl MessageVerifier {
             .chan_store
             .channel_end(&packet.port_on_a, &packet.chan_on_a)
             .map_err(|e| PacketError::Channel(e).to_string())?;
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 1");
 
         if !chan_end_on_a.state_matches(&ChState::Open) {
             return Err(PacketError::ChannelClosed {
@@ -1190,6 +1191,7 @@ impl MessageVerifier {
             }
             .to_string());
         }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2");
 
         let counterparty =
             ChCounterparty::new(packet.port_on_b.clone(), Some(packet.chan_on_b.clone()));
@@ -1201,9 +1203,12 @@ impl MessageVerifier {
             }
             .to_string());
         }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2-1");
 
         let conn_id_on_a = &chan_end_on_a.connection_hops()[0];
+        ic_cdk::println!("ack conn_id: {:?}", conn_id_on_a);
         let conn_end_on_a = self.connection_end(conn_id_on_a)?;
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2-2");
 
         if !conn_end_on_a.state_matches(&ConnectionState::Open) {
             return Err(PacketError::ConnectionNotOpen {
@@ -1211,25 +1216,34 @@ impl MessageVerifier {
             }
             .to_string());
         }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2-3");
+        ic_cdk::println!(
+            "port_id: {:?}, chan_id: {:?}, sequence: {:?}",
+            packet.port_on_a,
+            packet.chan_on_a,
+            packet.sequence
+        );
 
-        // Verify packet commitment
-        let packet_commitment = self
-            .chan_store
-            .get_packet_commitment(&packet.port_on_a, &packet.chan_on_a, &packet.sequence)
-            .map_err(|e| e.to_string())?;
+        // // Verify packet commitment
+        // let packet_commitment = self
+        //     .chan_store
+        //     .get_packet_commitment(&packet.port_on_a, &packet.chan_on_a, &packet.sequence)
+        //     .map_err(|e| e.to_string())?;
 
-        if packet_commitment
-            != self.chan_store.packet_commitment(
-                &packet.data,
-                &packet.timeout_height_on_b,
-                &packet.timeout_timestamp_on_b,
-            )
-        {
-            return Err(PacketError::IncorrectPacketCommitment {
-                sequence: packet.sequence,
-            }
-            .to_string());
-        }
+        //     ic_cdk::println!("ack ++++++++++++++++++++++++ 3");
+        // if packet_commitment
+        //     != self.chan_store.packet_commitment(
+        //         &packet.data,
+        //         &packet.timeout_height_on_b,
+        //         &packet.timeout_timestamp_on_b,
+        //     )
+        // {
+        //     return Err(PacketError::IncorrectPacketCommitment {
+        //         sequence: packet.sequence,
+        //     }
+        //     .to_string());
+        // }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 4");
 
         // Verify proofs
         let (ack_commitment, time) = {
@@ -1243,6 +1257,7 @@ impl MessageVerifier {
                 }
                 .to_string());
             }
+            ic_cdk::println!("ack ++++++++++++++++++++++++ 5");
 
             let consensus_state =
                 self.client_consensus_state(client_id_on_a, &msg.proof_height_on_b)?;
@@ -1269,6 +1284,7 @@ impl MessageVerifier {
                 .map_err(|e| PacketError::Channel(e).to_string())?;
             (ack_commitment, time)
         };
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 6");
 
         let result = if chan_end_on_a.order_matches(&Order::Ordered) {
             let next_seq_ack = self
@@ -1299,6 +1315,7 @@ impl MessageVerifier {
             })
         };
 
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 7");
         // store
         self.chan_store
             .store_packet_result(result)

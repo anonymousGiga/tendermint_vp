@@ -76,6 +76,7 @@ use prost::Message;
 use signer::*;
 mod mock_data;
 mod mock_data1;
+mod mock_data2;
 pub mod signer;
 
 #[update]
@@ -1020,7 +1021,6 @@ async fn test2() -> Result<(), String> {
         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
     ic_cdk::println!("sm header: {:?}", sm_header);
 
-
     // let raw_connection_open_try = get_ibc0_connection_open_try();
     // let proofs = conn_open_try(raw_connection_open_try).await?;
     // ic_cdk::println!("proofs: {:?}", proofs);
@@ -1040,7 +1040,6 @@ async fn test2() -> Result<(), String> {
     // let sm_header =
     //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
     // ic_cdk::println!("sm header: {:?}", sm_header);
-
 
     // let raw_channel_open_try = get_ibc0_channel_open_try();
     // let proofs = chan_open_try(raw_channel_open_try).await?;
@@ -1074,10 +1073,10 @@ async fn test2() -> Result<(), String> {
 
 #[update]
 async fn test3() -> Result<(), String> {
-    use mock_data1::*;
+    use mock_data2::*;
     restart()?;
 
-    let raw_create_client = get_ibc1_create_client();
+    let raw_create_client = get_ibc0_create_client();
     let sm_state = create_client(raw_create_client).await?;
     ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
     let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
@@ -1088,37 +1087,57 @@ async fn test3() -> Result<(), String> {
     ic_cdk::println!("sm client state: {:?}", sm_client_state);
     ic_cdk::println!("sm consensus state: {:?}", sm_consensus_state);
 
-    let raw_connection_open_init = get_ibc1_connection_open_init();
+    let raw_connection_open_init = get_ibc0_connection_open_init();
     conn_open_init(raw_connection_open_init).await?;
 
-    let raw_update_client = get_ibc1_update_client1();
+    let raw_update_client = get_ibc0_update_client1();
     let sm_header = update_client(raw_update_client).await?;
     let sm_header =
         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // let raw_update_client = get_ibc0_update_client2();
-    // let sm_header = update_client(raw_update_client).await?;
-    // let sm_header =
-    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    // ic_cdk::println!("sm header: {:?}", sm_header);
+    let raw_update_client = get_ibc0_update_client2();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // let raw_connection_open_ack = get_ibc1_connection_open_ack();
-    // let proofs = conn_open_ack(raw_connection_open_ack).await?;
-    // ic_cdk::println!("proofs: {:?}", proofs);
+    let raw_connection_open_ack = get_ibc0_connection_open_ack();
+    let proofs = conn_open_ack(raw_connection_open_ack).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
 
-    // let raw_channel_open_init = get_ibc0_channel_open_init();
-    // chan_open_init(raw_channel_open_init).await?;
+    let raw_channel_open_init = get_ibc0_channel_open_init();
+    chan_open_init(raw_channel_open_init).await?;
 
-    // let raw_update_client = get_ibc0_update_client3();
-    // let sm_header = update_client(raw_update_client).await?;
-    // let sm_header =
-    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    // ic_cdk::println!("sm header: {:?}", sm_header);
+    let raw_update_client = get_ibc0_update_client3();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // let raw_chann_open_ack = get_ibc0_channel_open_ack();
-    // let proofs = chan_open_ack(raw_chann_open_ack).await?;
-    // ic_cdk::println!("proofs: {:?}", proofs);
+    let raw_chann_open_ack = get_ibc0_channel_open_ack();
+    let proofs = chan_open_ack(raw_chann_open_ack).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
+    let raw_update_client = get_ibc0_update_client4();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_packet_ack = get_ibc0_ack();
+    let proofs = ack_packet(raw_packet_ack).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
+
+    let raw_update_client = get_ibc0_update_client5();
+    let sm_header = update_client(raw_update_client).await?;
+    let sm_header =
+        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    ic_cdk::println!("sm header: {:?}", sm_header);
+
+    let raw_packet_recv = get_ibc0_recv();
+    let proofs = recv_packet(raw_packet_recv).await?;
+    ic_cdk::println!("proofs: {:?}", proofs);
 
     Ok(())
 }
