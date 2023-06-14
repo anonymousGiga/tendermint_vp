@@ -83,7 +83,7 @@ impl MessageVerifier {
     pub fn new() -> Self {
         MessageVerifier {
             tendermint_clients: HashMap::new(),
-            client_ids_counter: 1u64,
+            client_ids_counter: 0u64,
             conn_store: ConnectionStore::new(),
             chan_store: ChannelStore::new(),
         }
