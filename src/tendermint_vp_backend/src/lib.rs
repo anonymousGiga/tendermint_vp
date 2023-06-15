@@ -999,77 +999,87 @@ fn post_upgrade() {
 //     Ok(proofs)
 // }
 
-#[update]
-async fn test2() -> Result<(), String> {
-    use mock_data1::*;
-    let raw_create_client = get_ibc0_create_client();
+// #[update]
+// async fn test2() -> Result<(), String> {
+//     use mock_data2::*;
 
-    restart()?;
-    let sm_state = create_client(raw_create_client).await?;
-    ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
-    let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
-        .map_err(|_| "parse client_state error".to_string())?;
-    let sm_consensus_state = RawSmConsesusState::decode(sm_state.consensus_state.as_ref())
-        .map_err(|_| "parse consensus_state error".to_string())?;
+//     restart()?;
 
-    ic_cdk::println!("sm client state: {:?}", sm_client_state);
-    ic_cdk::println!("sm consensus state: {:?}", sm_consensus_state);
+//     let raw_create_client = get_ibc1_create_client();
+//     let sm_state = create_client(raw_create_client).await?;
+//     ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
+//     let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
+//         .map_err(|_| "parse client_state error".to_string())?;
+//     let sm_consensus_state = RawSmConsesusState::decode(sm_state.consensus_state.as_ref())
+//         .map_err(|_| "parse consensus_state error".to_string())?;
+//     ic_cdk::println!("sm client state: {:?}", sm_client_state);
+//     ic_cdk::println!("sm consensus state: {:?}", sm_consensus_state);
 
-    let raw_update_client = get_ibc0_update_client1();
-    let sm_header = update_client(raw_update_client).await?;
-    let sm_header =
-        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    ic_cdk::println!("sm header: {:?}", sm_header);
+//     let raw_update_client = get_ibc1_update_client1();
+//     let sm_header = update_client(raw_update_client).await?;
+//     let sm_header =
+//         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+//     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // let raw_connection_open_try = get_ibc0_connection_open_try();
-    // let proofs = conn_open_try(raw_connection_open_try).await?;
-    // ic_cdk::println!("proofs: {:?}", proofs);
+//     let raw_connection_open_try = get_ibc1_connection_open_try();
+//     let proofs = conn_open_try(raw_connection_open_try).await?;
+//     ic_cdk::println!("proofs: {:?}", proofs);
 
-    // let raw_update_client = get_ibc0_update_client2();
-    // let sm_header = update_client(raw_update_client).await?;
-    // let sm_header =
-    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    // ic_cdk::println!("sm header: {:?}", sm_header);
+//     let raw_update_client = get_ibc1_update_client2();
+//     let sm_header = update_client(raw_update_client).await?;
+//     let sm_header =
+//         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+//     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // let raw_connection_open_confirm = get_ibc0_connection_open_confirm();
-    // let proofs = conn_open_confirm(raw_connection_open_confirm).await?;
-    // ic_cdk::println!("proofs: {:?}", proofs);
+//     let raw_connection_open_confirm = get_ibc1_connection_open_confirm();
+//     let proofs = conn_open_confirm(raw_connection_open_confirm).await?;
+//     ic_cdk::println!("proofs: {:?}", proofs);
 
-    // let raw_update_client = get_ibc0_update_client3();
-    // let sm_header = update_client(raw_update_client).await?;
-    // let sm_header =
-    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    // ic_cdk::println!("sm header: {:?}", sm_header);
+//     let raw_update_client = get_ibc1_update_client3();
+//     let sm_header = update_client(raw_update_client).await?;
+//     let sm_header =
+//         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+//     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // let raw_channel_open_try = get_ibc0_channel_open_try();
-    // let proofs = chan_open_try(raw_channel_open_try).await?;
-    // ic_cdk::println!("proofs: {:?}", proofs);
+//     let raw_channel_open_try = get_ibc1_channel_open_try();
+//     let proofs = chan_open_try(raw_channel_open_try).await?;
+//     ic_cdk::println!("proofs: {:?}", proofs);
 
-    // let raw_update_client = get_ibc0_update_client4();
-    // let sm_header = update_client(raw_update_client).await?;
-    // let sm_header =
-    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    // ic_cdk::println!("sm header: {:?}", sm_header);
+//     let raw_update_client = get_ibc1_update_client4();
+//     let sm_header = update_client(raw_update_client).await?;
+//     let sm_header =
+//         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+//     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // // let raw_update_client = get_ibc1_update_client5();
-    // // let sm_header = update_client(raw_update_client).await?;
-    // // let sm_header =
-    // //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    // // ic_cdk::println!("sm header: {:?}", sm_header);
+//     let raw_chann_open_confirm = get_ibc1_channel_open_confirm();
+//     let proofs = chan_open_confirm(raw_chann_open_confirm).await?;
+//     ic_cdk::println!("proofs: {:?}", proofs);
 
-    // let raw_chann_open_confirm = get_ibc0_channel_open_confirm();
-    // let proofs = chan_open_confirm(raw_chann_open_confirm).await?;
-    // ic_cdk::println!("proofs: {:?}", proofs);
+//     let raw_update_client = get_ibc1_update_client5();
+//     let sm_header = update_client(raw_update_client).await?;
+//     let sm_header =
+//         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+//     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    // let raw_recv_packet= get_ibc0_recv_packet();
-    // let proofs = recv_packet(raw_recv_packet).await?;
-    // ic_cdk::println!("proofs: {:?}", proofs);
+//     let raw_recv_packet = get_ibc1_recv_packet();
+//     let proofs = recv_packet(raw_recv_packet).await?;
+//     ic_cdk::println!("proofs: {:?}", proofs);
 
-    // // let time = get_sequence_times(1)?;
-    // // ic_cdk::println!("time: {:?}", time);
+//     let raw_update_client = get_ibc1_update_client6();
+//     let sm_header = update_client(raw_update_client).await?;
+//     let sm_header =
+//         RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+//     ic_cdk::println!("sm header: {:?}", sm_header);
 
-    Ok(())
-}
+//     let raw_ack_packet = get_ibc1_ack_packet();
+//     let proofs = ack_packet(raw_ack_packet).await?;
+//     ic_cdk::println!("proofs: {:?}", proofs);
+
+//     // // let time = get_sequence_times(1)?;
+//     // // ic_cdk::println!("time: {:?}", time);
+
+//     Ok(())
+// }
 
 #[update]
 async fn test3() -> Result<(), String> {
