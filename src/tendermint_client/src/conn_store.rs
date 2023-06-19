@@ -13,9 +13,9 @@ use ibc_proto::google::protobuf::Any;
 use hashbrown::HashMap;
 
 pub struct ConnectionStore {
-    connections: HashMap<ConnectionId, ConnectionEnd>,
-    client_connections: HashMap<ClientId, Vec<ConnectionId>>,
-    connections_counter: u64,
+    pub connections: HashMap<ConnectionId, ConnectionEnd>,
+    pub client_connections: HashMap<ClientId, Vec<ConnectionId>>,
+    pub connections_counter: u64,
 }
 
 impl ConnectionStore {

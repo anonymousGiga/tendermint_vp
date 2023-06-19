@@ -26,15 +26,15 @@ use ibc::core::ics04_channel::packet::{PacketResult, Sequence};
 use ibc::core::ics04_channel::timeout::TimeoutHeight;
 
 pub struct ChannelStore {
-    connection_channels: HashMap<ConnectionId, Vec<(PortId, ChannelId)>>,
-    channel_ids_counter: u64,
-    channels: HashMap<(PortId, ChannelId), ChannelEnd>,
-    next_sequence_send: HashMap<(PortId, ChannelId), Sequence>,
-    next_sequence_recv: HashMap<(PortId, ChannelId), Sequence>,
-    next_sequence_ack: HashMap<(PortId, ChannelId), Sequence>,
-    packet_receipts: HashMap<(PortId, ChannelId, Sequence), Receipt>,
-    packet_acknowledgements: HashMap<(PortId, ChannelId, Sequence), AcknowledgementCommitment>,
-    packet_commitments: HashMap<(PortId, ChannelId, Sequence), PacketCommitment>,
+    pub connection_channels: HashMap<ConnectionId, Vec<(PortId, ChannelId)>>,
+    pub channel_ids_counter: u64,
+    pub channels: HashMap<(PortId, ChannelId), ChannelEnd>,
+    pub next_sequence_send: HashMap<(PortId, ChannelId), Sequence>,
+    pub next_sequence_recv: HashMap<(PortId, ChannelId), Sequence>,
+    pub next_sequence_ack: HashMap<(PortId, ChannelId), Sequence>,
+    pub packet_receipts: HashMap<(PortId, ChannelId, Sequence), Receipt>,
+    pub packet_acknowledgements: HashMap<(PortId, ChannelId, Sequence), AcknowledgementCommitment>,
+    pub packet_commitments: HashMap<(PortId, ChannelId, Sequence), PacketCommitment>,
 }
 
 impl ChannelStore {

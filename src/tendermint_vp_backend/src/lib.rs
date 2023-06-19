@@ -78,6 +78,7 @@ mod mock_data;
 mod mock_data1;
 mod mock_data2;
 pub mod signer;
+pub mod storage;
 
 #[update]
 async fn public_key() -> Result<Vec<u8>, String> {
