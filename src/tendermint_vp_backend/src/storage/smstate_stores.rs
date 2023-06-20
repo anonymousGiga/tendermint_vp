@@ -34,21 +34,14 @@ use prost::Message;
 use super::storage_manager;
 use super::utils::*;
 
-const MAX_VALUE_SIZE: u32 = 32;
+const MAX_VALUE_SIZE: u32 = 4096;
 #[derive(CandidType, Deserialize)]
-struct StableChannelStore {
-    connection_channels_address: u8,
-    channel_ids_counter: u64,
-    channels_address: u8,
-    next_sequence_send_address: u8,
-    next_sequence_recv_address: u8,
-    next_sequence_ack_address: u8,
-    packet_receipts_address: u8,
-    packet_acknowledgements_address: u8,
-    packet_commitments_address: u8,
+struct StableSoloMachineStateStore {
+    client_state: Vec<u8>,
+    consensus_state_address: u8,
 }
 
-impl Storable for StableChannelStore {
+impl Storable for StableSoloMachineStateStores {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
         Cow::Owned(Encode!(self).unwrap())
     }
@@ -58,7 +51,7 @@ impl Storable for StableChannelStore {
     }
 }
 
-impl BoundedStorable for StableChannelStore {
+impl BoundedStorable for StableSoloMachineStateStores {
     const MAX_SIZE: u32 = MAX_VALUE_SIZE;
     const IS_FIXED_SIZE: bool = false;
 }
