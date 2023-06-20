@@ -4,6 +4,12 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use ic_stable_structures::{
     BTreeMap, BoundedStorable, DefaultMemoryImpl, Storable, Vec as StableVec,
 };
+
+use ibc::core::ics04_channel::packet::{PacketResult, Sequence};
+
+use ibc::core::ics04_channel::channel::ChannelEnd;
+// use tendermint_client::tendermint_client::PortId;
+use ibc::core::ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId};
 use std::str::FromStr;
 use std::{borrow::Cow, cell::RefCell};
 use tendermint_client::chan_store::ChannelStore;
@@ -16,8 +22,6 @@ use ibc_proto::ibc::core::connection::v1::{
 use ibc_proto::ibc::core::channel::v1::{
     Channel as RawChannel, IdentifiedChannel as RawIdentifiedChannel,
 };
-
-use ibc::core::ics24_host::identifier::{ClientId, ConnectionId};
 
 use hashbrown::HashMap;
 
@@ -62,7 +66,7 @@ impl From<ChannelStore> for StableChannelStore {
     fn from(value: ChannelStore) -> Self {
         let mut scs = StableChannelStore {
             connection_channels_address: 0u8,
-            channel_ids_counter: 0u64,
+            channel_ids_counter: value.channel_ids_counter,
             channels_address: 0u8,
             next_sequence_send_address: 0u8,
             next_sequence_recv_address: 0u8,
@@ -116,7 +120,7 @@ impl From<ChannelStore> for StableChannelStore {
                 map2.insert(k, v);
             }
 
-            // next_sequence_send 
+            // next_sequence_send
             let mut map3: BTreeMap<TupleStringData, u64, _> =
                 BTreeMap::init(instance.0.get(MemoryId::new(instance.1)));
             scs.next_sequence_send_address = instance.1;
@@ -164,98 +168,171 @@ impl From<ChannelStore> for StableChannelStore {
                 map5.insert(k, v);
             }
 
-            // let mut map2: BTreeMap<StringData, u8, _> =
-            //     BTreeMap::init(instance.0.get(MemoryId::new(instance.1)));
-            // scs.client_connections_address = instance.1;
-            // instance.1 += 1;
+            // packet_receipts
+            let mut map6: BTreeMap<TupleData, u8, _> =
+                BTreeMap::init(instance.0.get(MemoryId::new(instance.1)));
+            scs.packet_receipts_address = instance.1;
+            instance.1 += 1;
 
-            // for (k, v) in value.connections {
-            //     let h = StringData(k.to_string());
-            //     let cs = VecData(RawConnectionEnd::from(v).encode_to_vec());
-            //     map1.insert(h, cs);
-            // }
+            for ((port_id, chann_id, seq), _receipt) in value.packet_receipts {
+                let k = TupleData {
+                    data1: port_id.as_str().to_string(),
+                    data2: chann_id.as_str().to_string(),
+                    data3: u64::from(seq),
+                };
 
-            // for (k, v) in value.client_connections {
-            //     let c = StringData(k.to_string());
-            //     let vec: StableVec<StringData, _> =
-            //         StableVec::init(instance.0.get(MemoryId::new(instance.1)))
-            //             .expect("Get vec memory error");
-            //     map2.insert(c, instance.1);
-            //     instance.1 += 1;
+                let v = 1u8; // as all receipts are ok
+                map6.insert(k, v);
+            }
 
-            //     let _ = v
-            //         .iter()
-            //         .map(|conn_id| vec.push(&StringData(conn_id.as_str().to_string())))
-            //         .collect::<Vec<_>>();
-            // }
+            // packet_ack
+            let mut map7: BTreeMap<TupleData, VecData, _> =
+                BTreeMap::init(instance.0.get(MemoryId::new(instance.1)));
+            scs.packet_acknowledgements_address = instance.1;
+            instance.1 += 1;
+
+            for ((port_id, chann_id, seq), ack) in value.packet_acknowledgements {
+                let k = TupleData {
+                    data1: port_id.as_str().to_string(),
+                    data2: chann_id.as_str().to_string(),
+                    data3: u64::from(seq),
+                };
+
+                let v = VecData(ack.into_vec());
+
+                map7.insert(k, v);
+            }
+
+            // packet_commitment
+            let mut map8: BTreeMap<TupleData, VecData, _> =
+                BTreeMap::init(instance.0.get(MemoryId::new(instance.1)));
+            scs.packet_acknowledgements_address = instance.1;
+            instance.1 += 1;
+
+            for ((port_id, chann_id, seq), commitment) in value.packet_commitments {
+                let k = TupleData {
+                    data1: port_id.as_str().to_string(),
+                    data2: chann_id.as_str().to_string(),
+                    data3: u64::from(seq),
+                };
+
+                let v = VecData(commitment.into_vec());
+
+                map8.insert(k, v);
+            }
         });
 
         scs
     }
 }
 
-// impl From<StableChannelStore> for ChannelStore{
-//     fn from(value: StableChannelStore) -> Self {
-//         let mut connections = HashMap::new();
+impl From<StableChannelStore> for ChannelStore {
+    fn from(value: StableChannelStore) -> Self {
+        // connection_channels
+        let mut connection_channels = HashMap::new();
+        storage_manager::MEMORY_MANAGER.with(|instance| {
+            let instance = instance.borrow();
+            let map: BTreeMap<StringData, u8, _> = BTreeMap::init(
+                instance
+                    .0
+                    .get(MemoryId::new(value.connection_channels_address)),
+            );
 
-//         storage_manager::MEMORY_MANAGER.with(|instance| {
-//             let instance = instance.borrow();
-//             let map: BTreeMap<StringData, VecData, _> =
-//                 BTreeMap::init(instance.0.get(MemoryId::new(value.connections_address)));
+            let _ = map
+                .iter()
+                .map(|(k, v)| {
+                    let conn_id: ConnectionId =
+                        ConnectionId::from_str(&k.0).expect("Parse connection id error");
 
-//             let _ = map
-//                 .iter()
-//                 .map(|(k, v)| {
-//                     let conn_id: ConnectionId =
-//                         ConnectionId::from_str(&k.0).expect("Parse connection id error");
-//                     let conn_end: ConnectionEnd = RawConnectionEnd::decode(v.0.as_ref())
-//                         .expect("parse connecion end error")
-//                         .try_into()
-//                         .expect("parse connecion end error");
+                    let st_vec: StableVec<TupleStringData, _> =
+                        StableVec::init(instance.0.get(MemoryId::new(v)))
+                            .expect("Get vec memory error");
+                    let mut vec = Vec::new();
 
-//                     connections.insert(conn_id, conn_end);
-//                 })
-//                 .collect::<Vec<_>>();
-//         });
+                    let _ = st_vec
+                        .iter()
+                        .map(|value| {
+                            let port_id =
+                                PortId::from_str(&value.data1).expect("Parse port id error");
 
-//         let mut client_connections = HashMap::new();
+                            let chan_id =
+                                ChannelId::from_str(&value.data1).expect("Parse channel id error");
 
-//         storage_manager::MEMORY_MANAGER.with(|instance| {
-//             let instance = instance.borrow();
-//             let map: BTreeMap<StringData, u8, _> = BTreeMap::init(
-//                 instance
-//                     .0
-//                     .get(MemoryId::new(value.client_connections_address)),
-//             );
+                            vec.push((port_id, chan_id))
+                        })
+                        .collect::<Vec<_>>();
 
-//             let _ = map
-//                 .iter()
-//                 .map(|(k, v)| {
-//                     let client_id: ClientId =
-//                         ClientId::from_str(&k.0).expect("Parse client id error");
-//                     let st_vec: StableVec<StringData, _> =
-//                         StableVec::init(instance.0.get(MemoryId::new(v)))
-//                             .expect("Get vec memory error");
-//                     let mut vec = Vec::new();
+                    connection_channels.insert(conn_id, vec);
+                })
+                .collect::<Vec<_>>();
+        });
 
-//                     let _ = st_vec
-//                         .iter()
-//                         .map(|value| {
-//                             let conn_id = ConnectionId::from_str(&value.0)
-//                                 .expect("Parse conneciont id error");
-//                             vec.push(conn_id)
-//                         })
-//                         .collect::<Vec<_>>();
+        // channels
+        let mut channels = HashMap::new();
+        storage_manager::MEMORY_MANAGER.with(|instance| {
+            let instance = instance.borrow();
+            let map: BTreeMap<TupleStringData, VecData, _> = BTreeMap::init(
+                instance
+                    .0
+                    .get(MemoryId::new(value.channels_address)),
+            );
 
-//                     client_connections.insert(client_id, vec);
-//                 })
-//                 .collect::<Vec<_>>();
-//         });
+            let _ = map
+                .iter()
+                .map(|(k, v)| {
+                    let port_id = PortId::from_str(&k.data1).expect("Parse port id error");
+                    let chann_id = ChannelId::from_str(&k.data1).expect("Parse channel id error");
+                    let chan_end: ChannelEnd = RawChannel::decode(v.0.as_ref())
+                        .expect("parse channel end error")
+                        .try_into()
+                        .expect("parse channel end error");
 
-//         ConnectionStore {
-//             connections,
-//             client_connections,
-//             connections_counter: value.connections_count,
-//         }
-//     }
-// }
+
+                    channels.insert((port_id, chann_id), chan_end);
+                })
+                .collect::<Vec<_>>();
+        });
+
+        // next_sequence_send
+        let mut next_sequence_send = HashMap::new();
+        storage_manager::MEMORY_MANAGER.with(|instance| {
+            let instance = instance.borrow();
+            let map: BTreeMap<TupleStringData, u64, _> = BTreeMap::init(
+                instance
+                    .0
+                    .get(MemoryId::new(value.channels_address)),
+            );
+
+            let _ = map
+                .iter()
+                .map(|(k, v)| {
+                    let port_id = PortId::from_str(&k.data1).expect("Parse port id error");
+                    let chann_id = ChannelId::from_str(&k.data1).expect("Parse channel id error");
+                    let sequence = Sequence::from(v);
+
+
+                    next_sequence_send.insert((port_id, chann_id), sequence);
+                })
+                .collect::<Vec<_>>();
+        });
+
+
+        let mut next_sequence_recv = HashMap::new();
+        let mut next_sequence_ack = HashMap::new();
+        let mut packet_receipts = HashMap::new();
+        let mut packet_acknowledgements = HashMap::new();
+        let mut packet_commitments = HashMap::new();
+
+        ChannelStore {
+            connection_channels,
+            channel_ids_counter: value.channel_ids_counter,
+            channels,
+            next_sequence_send,
+            next_sequence_recv,
+            next_sequence_ack,
+            packet_receipts,
+            packet_acknowledgements,
+            packet_commitments,
+        }
+    }
+}
