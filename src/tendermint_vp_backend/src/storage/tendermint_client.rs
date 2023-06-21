@@ -23,7 +23,7 @@ use super::utils::*;
 const MAX_VALUE_SIZE: u32 = 4096;
 
 #[derive(CandidType, Deserialize)]
-struct StableTendermintClient {
+pub struct StableTendermintClient {
     client_id: String,
     addreass_offset: u8,
     client_state: Vec<u8>,

@@ -5,13 +5,13 @@ use ibc::core::ics24_host::identifier::ClientId;
 use crate::prelude::*;
 use hashbrown::HashMap;
 
-struct SoloMachineStateStore {
-    client_state: SmClientState,
-    consensus_state: HashMap<u64, SmConsensusState>,
+pub struct SoloMachineStateStore {
+    pub client_state: SmClientState,
+    pub consensus_state: HashMap<u64, SmConsensusState>,
 }
 
 pub struct SoloMachineStateStores {
-    solomachine: HashMap<ClientId, SoloMachineStateStore>,
+    pub solomachine: HashMap<ClientId, SoloMachineStateStore>,
 }
 
 impl SoloMachineStateStores {
@@ -73,7 +73,7 @@ impl SoloMachineStateStores {
 }
 
 pub struct SequenceAndTimeStore {
-    sequence_time: HashMap<u64, u64>,
+    pub sequence_time: HashMap<u64, u64>,
 }
 
 impl SequenceAndTimeStore {

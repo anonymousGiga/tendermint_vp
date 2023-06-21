@@ -27,7 +27,7 @@ use super::utils::*;
 
 const MAX_VALUE_SIZE: u32 = 16;
 #[derive(CandidType, Deserialize)]
-struct StableConnectionStore {
+pub struct StableConnectionStore {
     connections_address: u8,
     client_connections_address: u8,
     connections_count: u64,

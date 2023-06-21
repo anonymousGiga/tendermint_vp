@@ -73,10 +73,10 @@ use ic_cdk::api::time;
 pub const DEFAULT_COMMITMENT_PREFIX: &str = "ibc";
 
 pub struct MessageVerifier {
-    tendermint_clients: HashMap<ClientId, TendermintClient>,
-    client_ids_counter: u64,
-    conn_store: ConnectionStore,
-    chan_store: ChannelStore,
+    pub tendermint_clients: HashMap<ClientId, TendermintClient>,
+    pub client_ids_counter: u64,
+    pub conn_store: ConnectionStore,
+    pub chan_store: ChannelStore,
 }
 
 impl MessageVerifier {

@@ -6,7 +6,7 @@ use ic_stable_structures::{
     BTreeMap, BoundedStorable, DefaultMemoryImpl, Storable, Vec as StableVec,
 };
 
-use ibc::core::ics04_channel::packet::{PacketResult, Sequence, Receipt};
+use ibc::core::ics04_channel::packet::{PacketResult, Receipt, Sequence};
 
 use ibc::core::ics04_channel::channel::ChannelEnd;
 // use tendermint_client::tendermint_client::PortId;
@@ -36,7 +36,7 @@ use super::utils::*;
 
 const MAX_VALUE_SIZE: u32 = 32;
 #[derive(CandidType, Deserialize)]
-struct StableChannelStore {
+pub struct StableChannelStore {
     connection_channels_address: u8,
     channel_ids_counter: u64,
     channels_address: u8,
@@ -272,11 +272,8 @@ impl From<StableChannelStore> for ChannelStore {
         let mut channels = HashMap::new();
         storage_manager::MEMORY_MANAGER.with(|instance| {
             let instance = instance.borrow();
-            let map: BTreeMap<TupleStringData, VecData, _> = BTreeMap::init(
-                instance
-                    .0
-                    .get(MemoryId::new(value.channels_address)),
-            );
+            let map: BTreeMap<TupleStringData, VecData, _> =
+                BTreeMap::init(instance.0.get(MemoryId::new(value.channels_address)));
 
             let _ = map
                 .iter()
@@ -287,7 +284,6 @@ impl From<StableChannelStore> for ChannelStore {
                         .expect("parse channel end error")
                         .try_into()
                         .expect("parse channel end error");
-
 
                     channels.insert((port_id, chann_id), chan_end);
                 })
@@ -311,7 +307,6 @@ impl From<StableChannelStore> for ChannelStore {
                     let chann_id = ChannelId::from_str(&k.data2).expect("Parse channel id error");
                     let sequence = Sequence::from(v);
 
-
                     next_sequence_send.insert((port_id, chann_id), sequence);
                 })
                 .collect::<Vec<_>>();
@@ -333,7 +328,6 @@ impl From<StableChannelStore> for ChannelStore {
                     let port_id = PortId::from_str(&k.data1).expect("Parse port id error");
                     let chann_id = ChannelId::from_str(&k.data2).expect("Parse channel id error");
                     let sequence = Sequence::from(v);
-
 
                     next_sequence_recv.insert((port_id, chann_id), sequence);
                 })
@@ -362,16 +356,11 @@ impl From<StableChannelStore> for ChannelStore {
                 .collect::<Vec<_>>();
         });
 
-
-
         let mut packet_receipts = HashMap::new();
         storage_manager::MEMORY_MANAGER.with(|instance| {
             let instance = instance.borrow();
-            let map: BTreeMap<TupleData, u8, _> = BTreeMap::init(
-                instance
-                    .0
-                    .get(MemoryId::new(value.packet_receipts_address)),
-            );
+            let map: BTreeMap<TupleData, u8, _> =
+                BTreeMap::init(instance.0.get(MemoryId::new(value.packet_receipts_address)));
 
             let _ = map
                 .iter()
@@ -385,7 +374,6 @@ impl From<StableChannelStore> for ChannelStore {
                 })
                 .collect::<Vec<_>>();
         });
-
 
         let mut packet_acknowledgements = HashMap::new();
         storage_manager::MEMORY_MANAGER.with(|instance| {
@@ -403,7 +391,6 @@ impl From<StableChannelStore> for ChannelStore {
                     let chann_id = ChannelId::from_str(&k.data2).expect("Parse channel id error");
                     let sequence = Sequence::from(k.data3);
                     let ack: AcknowledgementCommitment = AcknowledgementCommitment::from(v.0);
-
 
                     packet_acknowledgements.insert((port_id, chann_id, sequence), ack);
                 })
@@ -426,7 +413,6 @@ impl From<StableChannelStore> for ChannelStore {
                     let chann_id = ChannelId::from_str(&k.data2).expect("Parse channel id error");
                     let sequence = Sequence::from(k.data3);
                     let commit = PacketCommitment::from(v.0);
-
 
                     packet_commitments.insert((port_id, chann_id, sequence), commit);
                 })

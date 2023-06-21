@@ -73,6 +73,8 @@ use ibc::Height;
 use ibc_proto::protobuf::Protobuf;
 use prost::Message;
 
+use storage::storage_instance::{presist, restore, StableTendermintInstance};
+
 use signer::*;
 mod mock_data;
 mod mock_data1;
@@ -100,12 +102,13 @@ async fn verify(
     signer::verify(signature_hex, message, public_key_hex).await
 }
 
-struct TendermintInstance {
-    owner: Option<Principal>,
-    verifier: Option<MessageVerifier>,
-    solo_store: Option<SoloMachineStateStores>,
-    solo_counter: Option<SoloMachineCounter>,
-    sequence_times: Option<SequenceAndTimeStore>,
+#[derive(Default)]
+pub struct TendermintInstance {
+    pub owner: Option<Principal>,
+    pub verifier: Option<MessageVerifier>,
+    pub solo_store: Option<SoloMachineStateStores>,
+    pub solo_counter: Option<SoloMachineCounter>,
+    pub sequence_times: Option<SequenceAndTimeStore>,
 }
 
 thread_local! {
@@ -869,15 +872,20 @@ async fn ack_packet(msg: Vec<u8>) -> Result<Proofs, String> {
 
 #[pre_upgrade]
 fn pre_upgrade() {
+    let ti = INSTANCE.with(|instance| instance.replace(TendermintInstance::default()));
+
+    let sti = StableTendermintInstance::from(ti);
+    presist(sti).expect("Presist data error!");
+
     ic_cdk::println!("Need storage something!");
 }
 
 #[post_upgrade]
 fn post_upgrade() {
+    let ti = restore().expect("Restore data error!");
     ic_cdk::println!("Need restore something frome storage!");
     INSTANCE.with(|instance| {
-        let mut instance = instance.borrow_mut();
-        instance.owner = Some(ic_cdk::api::caller());
+        instance.replace(ti);
     });
 }
 
@@ -1084,71 +1092,71 @@ fn post_upgrade() {
 
 #[update]
 async fn test3() -> Result<(), String> {
-    use mock_data2::*;
-    restart()?;
+    // use mock_data2::*;
+    // restart()?;
 
-    let raw_create_client = get_ibc0_create_client();
-    let sm_state = create_client(raw_create_client).await?;
-    ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
-    let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
-        .map_err(|_| "parse client_state error".to_string())?;
-    let sm_consensus_state = RawSmConsesusState::decode(sm_state.consensus_state.as_ref())
-        .map_err(|_| "parse consensus_state error".to_string())?;
+    // let raw_create_client = get_ibc0_create_client();
+    // let sm_state = create_client(raw_create_client).await?;
+    // ic_cdk::println!("sm client state: {:?}", sm_state.client_state);
+    // let sm_client_state = RawSmClientState::decode(sm_state.client_state.as_ref())
+    //     .map_err(|_| "parse client_state error".to_string())?;
+    // let sm_consensus_state = RawSmConsesusState::decode(sm_state.consensus_state.as_ref())
+    //     .map_err(|_| "parse consensus_state error".to_string())?;
 
-    ic_cdk::println!("sm client state: {:?}", sm_client_state);
-    ic_cdk::println!("sm consensus state: {:?}", sm_consensus_state);
+    // ic_cdk::println!("sm client state: {:?}", sm_client_state);
+    // ic_cdk::println!("sm consensus state: {:?}", sm_consensus_state);
 
-    let raw_connection_open_init = get_ibc0_connection_open_init();
-    conn_open_init(raw_connection_open_init).await?;
+    // let raw_connection_open_init = get_ibc0_connection_open_init();
+    // conn_open_init(raw_connection_open_init).await?;
 
-    let raw_update_client = get_ibc0_update_client1();
-    let sm_header = update_client(raw_update_client).await?;
-    let sm_header =
-        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    ic_cdk::println!("sm header: {:?}", sm_header);
+    // let raw_update_client = get_ibc0_update_client1();
+    // let sm_header = update_client(raw_update_client).await?;
+    // let sm_header =
+    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    // ic_cdk::println!("sm header: {:?}", sm_header);
 
-    let raw_update_client = get_ibc0_update_client2();
-    let sm_header = update_client(raw_update_client).await?;
-    let sm_header =
-        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    ic_cdk::println!("sm header: {:?}", sm_header);
+    // let raw_update_client = get_ibc0_update_client2();
+    // let sm_header = update_client(raw_update_client).await?;
+    // let sm_header =
+    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    // ic_cdk::println!("sm header: {:?}", sm_header);
 
-    let raw_connection_open_ack = get_ibc0_connection_open_ack();
-    let proofs = conn_open_ack(raw_connection_open_ack).await?;
-    ic_cdk::println!("proofs: {:?}", proofs);
+    // let raw_connection_open_ack = get_ibc0_connection_open_ack();
+    // let proofs = conn_open_ack(raw_connection_open_ack).await?;
+    // ic_cdk::println!("proofs: {:?}", proofs);
 
-    let raw_channel_open_init = get_ibc0_channel_open_init();
-    chan_open_init(raw_channel_open_init).await?;
+    // let raw_channel_open_init = get_ibc0_channel_open_init();
+    // chan_open_init(raw_channel_open_init).await?;
 
-    let raw_update_client = get_ibc0_update_client3();
-    let sm_header = update_client(raw_update_client).await?;
-    let sm_header =
-        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    ic_cdk::println!("sm header: {:?}", sm_header);
+    // let raw_update_client = get_ibc0_update_client3();
+    // let sm_header = update_client(raw_update_client).await?;
+    // let sm_header =
+    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    // ic_cdk::println!("sm header: {:?}", sm_header);
 
-    let raw_chann_open_ack = get_ibc0_channel_open_ack();
-    let proofs = chan_open_ack(raw_chann_open_ack).await?;
-    ic_cdk::println!("proofs: {:?}", proofs);
+    // let raw_chann_open_ack = get_ibc0_channel_open_ack();
+    // let proofs = chan_open_ack(raw_chann_open_ack).await?;
+    // ic_cdk::println!("proofs: {:?}", proofs);
 
-    let raw_update_client = get_ibc0_update_client4();
-    let sm_header = update_client(raw_update_client).await?;
-    let sm_header =
-        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    ic_cdk::println!("sm header: {:?}", sm_header);
+    // let raw_update_client = get_ibc0_update_client4();
+    // let sm_header = update_client(raw_update_client).await?;
+    // let sm_header =
+    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    // ic_cdk::println!("sm header: {:?}", sm_header);
 
-    let raw_packet_ack = get_ibc0_ack();
-    let proofs = ack_packet(raw_packet_ack).await?;
-    ic_cdk::println!("proofs: {:?}", proofs);
+    // let raw_packet_ack = get_ibc0_ack();
+    // let proofs = ack_packet(raw_packet_ack).await?;
+    // ic_cdk::println!("proofs: {:?}", proofs);
 
-    let raw_update_client = get_ibc0_update_client5();
-    let sm_header = update_client(raw_update_client).await?;
-    let sm_header =
-        RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
-    ic_cdk::println!("sm header: {:?}", sm_header);
+    // let raw_update_client = get_ibc0_update_client5();
+    // let sm_header = update_client(raw_update_client).await?;
+    // let sm_header =
+    //     RawSmHeader::decode(sm_header.as_ref()).map_err(|_| "parse sm header error".to_string())?;
+    // ic_cdk::println!("sm header: {:?}", sm_header);
 
-    let raw_packet_recv = get_ibc0_recv();
-    let proofs = recv_packet(raw_packet_recv).await?;
-    ic_cdk::println!("proofs: {:?}", proofs);
+    // let raw_packet_recv = get_ibc0_recv();
+    // let proofs = recv_packet(raw_packet_recv).await?;
+    // ic_cdk::println!("proofs: {:?}", proofs);
 
     Ok(())
 }
