@@ -34,7 +34,7 @@ use prost::Message;
 use super::storage_manager;
 use super::utils::*;
 
-const MAX_VALUE_SIZE: u32 = 32;
+const MAX_VALUE_SIZE: u32 = 16;
 #[derive(CandidType, Deserialize)]
 pub struct StableChannelStore {
     connection_channels_address: u8,
@@ -290,7 +290,7 @@ impl From<StableChannelStore> for ChannelStore {
                 .collect::<Vec<_>>();
         });
 
-        // next_sequence_send
+        // // next_sequence_send
         let mut next_sequence_send = HashMap::new();
         storage_manager::MEMORY_MANAGER.with(|instance| {
             let instance = instance.borrow();
@@ -312,7 +312,7 @@ impl From<StableChannelStore> for ChannelStore {
                 .collect::<Vec<_>>();
         });
 
-        // next_sequence_recv
+        // // next_sequence_recv
         let mut next_sequence_recv = HashMap::new();
         storage_manager::MEMORY_MANAGER.with(|instance| {
             let instance = instance.borrow();
@@ -334,7 +334,7 @@ impl From<StableChannelStore> for ChannelStore {
                 .collect::<Vec<_>>();
         });
 
-        // next_sequence_ack
+        // // next_sequence_ack
         let mut next_sequence_ack = HashMap::new();
         storage_manager::MEMORY_MANAGER.with(|instance| {
             let instance = instance.borrow();

@@ -4,19 +4,6 @@
       "candid": "src/tendermint_vp_backend/tendermint_vp_backend.did",
       "package": "tendermint_vp_backend",
       "type": "rust"
-    },
-    "tendermint_vp_frontend": {
-      "dependencies": [
-        "tendermint_vp_backend"
-      ],
-      "frontend": {
-        "entrypoint": "src/tendermint_vp_frontend/src/index.html"
-      },
-      "source": [
-        "src/tendermint_vp_frontend/assets",
-        "dist/tendermint_vp_frontend/"
-      ],
-      "type": "assets"
     }
   },
   "defaults": {

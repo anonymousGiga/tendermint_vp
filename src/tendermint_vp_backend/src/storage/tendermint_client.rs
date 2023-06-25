@@ -20,7 +20,7 @@ use prost::Message;
 use super::storage_manager;
 use super::utils::*;
 
-const MAX_VALUE_SIZE: u32 = 4096;
+const MAX_VALUE_SIZE: u32 = 2048;
 
 #[derive(CandidType, Deserialize)]
 pub struct StableTendermintClient {

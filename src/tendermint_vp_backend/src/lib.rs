@@ -76,9 +76,9 @@ use prost::Message;
 use storage::storage_instance::{presist, restore, StableTendermintInstance};
 
 use signer::*;
-mod mock_data;
-mod mock_data1;
-mod mock_data2;
+// mod mock_data;
+// mod mock_data1;
+// mod mock_data2;
 pub mod signer;
 pub mod storage;
 
@@ -870,23 +870,31 @@ async fn ack_packet(msg: Vec<u8>) -> Result<Proofs, String> {
     Ok(proofs)
 }
 
-#[pre_upgrade]
-fn pre_upgrade() {
+fn store_data() {
     let ti = INSTANCE.with(|instance| instance.replace(TendermintInstance::default()));
 
     let sti = StableTendermintInstance::from(ti);
     presist(sti).expect("Presist data error!");
+}
 
+#[pre_upgrade]
+fn pre_upgrade() {
+    // store_data();
     ic_cdk::println!("Need storage something!");
 }
 
-#[post_upgrade]
-fn post_upgrade() {
+fn restore_data() {
     let ti = restore().expect("Restore data error!");
     ic_cdk::println!("Need restore something frome storage!");
     INSTANCE.with(|instance| {
         instance.replace(ti);
     });
+}
+
+#[post_upgrade]
+fn post_upgrade() {
+    // restore_data();
+    ic_cdk::println!("Restore something!");
 }
 
 // #[update]

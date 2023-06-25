@@ -44,7 +44,7 @@ use prost::Message;
 use super::storage_manager;
 use super::utils::*;
 
-const MAX_VALUE_SIZE: u32 = 4096;
+const MAX_VALUE_SIZE: u32 = 2048;
 #[derive(CandidType, Deserialize)]
 struct StableSoloMachineStateStore {
     client_state: Vec<u8>,
@@ -123,7 +123,7 @@ impl From<StableSoloMachineStateStore> for SoloMachineStateStore {
     }
 }
 
-const MAX_VALUES_SIZE: u32 = 2;
+const MAX_VALUES_SIZE: u32 = 1;
 #[derive(CandidType, Deserialize)]
 pub struct StableSoloMachineStateStores {
     solomachine_address: u8,

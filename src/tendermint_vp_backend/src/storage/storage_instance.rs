@@ -42,9 +42,9 @@ const MAX_VALUE_SIZE: u32 = 64;
 #[derive(CandidType, Deserialize, Default)]
 pub struct StableTendermintInstance {
     pub owner: Option<Principal>,
-    pub verifier: Option<StableMessageVerifier>,
-    pub solo_store: Option<StableSoloMachineStateStores>,
-    pub solo_counter: Option<u64>,
+    // pub verifier: Option<StableMessageVerifier>,
+    // pub solo_store: Option<StableSoloMachineStateStores>,
+    // pub solo_counter: Option<u64>,
     pub sequence_times: Option<StableSequenceAndTimeStore>,
 }
 
@@ -65,22 +65,22 @@ impl BoundedStorable for StableTendermintInstance {
 
 impl From<TendermintInstance> for StableTendermintInstance {
     fn from(value: TendermintInstance) -> Self {
-        let verifier = value
-            .verifier
-            .and_then(|v| Some(StableMessageVerifier::from(v)));
-        let solo_store = value
-            .solo_store
-            .and_then(|v| Some(StableSoloMachineStateStores::from(v)));
-        let solo_counter = value.solo_counter.and_then(|v| Some(v.sequence_cnt()));
+        // let verifier = value
+        //     .verifier
+        //     .and_then(|v| Some(StableMessageVerifier::from(v)));
+        // let solo_store = value
+        //     .solo_store
+        //     .and_then(|v| Some(StableSoloMachineStateStores::from(v)));
+        // let solo_counter = value.solo_counter.and_then(|v| Some(v.sequence_cnt()));
         let sequence_times = value
             .sequence_times
             .and_then(|v| Some(StableSequenceAndTimeStore::from(v)));
 
         let sti = StableTendermintInstance {
             owner: value.owner,
-            verifier,
-            solo_store,
-            solo_counter,
+            // verifier,
+            // solo_store,
+            // solo_counter,
             sequence_times,
         };
 
@@ -90,22 +90,31 @@ impl From<TendermintInstance> for StableTendermintInstance {
 
 impl From<StableTendermintInstance> for TendermintInstance {
     fn from(value: StableTendermintInstance) -> Self {
-        let verifier = value.verifier.and_then(|v| Some(MessageVerifier::from(v)));
-        let solo_store = value
-            .solo_store
-            .and_then(|v| Some(SoloMachineStateStores::from(v)));
-        let solo_counter = value
-            .solo_counter
-            .and_then(|v| Some(SoloMachineCounter::new(v)));
+        // let verifier = value.verifier.and_then(|v| Some(MessageVerifier::from(v)));
+        // let solo_store = value
+        //     .solo_store
+        //     .and_then(|v| Some(SoloMachineStateStores::from(v)));
+        // let solo_counter = value
+        //     .solo_counter
+        //     .and_then(|v| Some(SoloMachineCounter::new(v)));
         let sequence_times = value
             .sequence_times
             .and_then(|v| Some(SequenceAndTimeStore::from(v)));
 
+        // TendermintInstance {
+        //     owner: value.owner,
+        //     verifier,
+        //     solo_store,
+        //     solo_counter,
+        //     sequence_times,
+        // }
+
         TendermintInstance {
             owner: value.owner,
-            verifier,
-            solo_store,
-            solo_counter,
+            verifier: None,
+            solo_store: None,
+            solo_counter: None,
+            // sequence_times: None,
             sequence_times,
         }
     }

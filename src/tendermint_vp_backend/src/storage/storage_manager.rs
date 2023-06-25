@@ -16,3 +16,45 @@ thread_local! {
     //     )
     // );
 }
+
+pub fn alloc_memory() {
+    use ic_stable_structures::{
+        BTreeMap, BoundedStorable, DefaultMemoryImpl, Storable, Vec as StableVec,
+    };
+    MEMORY_MANAGER.with(|instance| {
+        let mut instance = instance.borrow_mut();
+        let mut map: BTreeMap<u64, u64, _> =
+            BTreeMap::init(instance.0.get(MemoryId::new(instance.1)));
+        instance.1 += 1;
+
+        ic_cdk::println!("============== instance.cnt = {:?}", instance.1);
+
+        for i in 0..111 {
+            map.insert(i, i);
+        }
+    });
+}
+
+pub fn restore_from_memory(id: u8) {
+    use hashbrown::HashMap;
+    use ic_stable_structures::{
+        BTreeMap, BoundedStorable, DefaultMemoryImpl, Storable, Vec as StableVec,
+    };
+
+    let mut sequence_time = HashMap::new();
+    MEMORY_MANAGER.with(|instance| {
+        let instance = instance.borrow();
+        let map: BTreeMap<u64, u64, _> = BTreeMap::init(instance.0.get(MemoryId::new(id)));
+
+        let _ = map
+            .iter()
+            .map(|(k, v)| {
+                sequence_time.insert(k, v);
+            })
+            .collect::<Vec<_>>();
+    });
+
+    for (k, v) in sequence_time {
+        ic_cdk::println!("restore k: {:?}, v: {:?}", k, v);
+    }
+}

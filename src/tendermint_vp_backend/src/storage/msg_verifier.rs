@@ -26,7 +26,7 @@ use super::storage_manager;
 use super::tendermint_client::*;
 use super::utils::*;
 
-const MAX_VALUE_SIZE: u32 = 64;
+const MAX_VALUE_SIZE: u32 = 48;
 
 #[derive(CandidType, Deserialize)]
 pub struct StableMessageVerifier {
