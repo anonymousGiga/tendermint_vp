@@ -843,6 +843,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-stable-structures"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4e026318236de13568edafd85534ad29910908bf08cdcf177d4403fd4a5f6c4"
+
+[[package]]
 name = "ic0"
 version = "0.18.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1945,10 +1951,12 @@ version = "0.1.0"
 dependencies = [
  "candid",
  "getrandom",
+ "hashbrown 0.13.2",
  "hex",
  "ibc",
  "ibc-proto",
  "ic-cdk",
+ "ic-stable-structures",
  "k256 0.12.0",
  "prost",
  "serde",

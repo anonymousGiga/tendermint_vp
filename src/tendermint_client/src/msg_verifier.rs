@@ -39,6 +39,7 @@ use ibc::core::ics03_connection::msgs::conn_open_try::MsgConnectionOpenTry;
 use ibc::core::ics23_commitment::commitment::CommitmentPrefix;
 use ibc::core::ics24_host::identifier::ConnectionId;
 
+use ibc::applications::transfer::{PrefixedCoin, PrefixedDenom, VERSION};
 use ibc::core::ics04_channel::channel::Order;
 use ibc::core::ics04_channel::channel::{
     ChannelEnd, Counterparty as ChCounterparty, State as ChState,
@@ -72,17 +73,17 @@ use ic_cdk::api::time;
 pub const DEFAULT_COMMITMENT_PREFIX: &str = "ibc";
 
 pub struct MessageVerifier {
-    tendermint_clients: HashMap<ClientId, TendermintClient>,
-    client_ids_counter: u64,
-    conn_store: ConnectionStore,
-    chan_store: ChannelStore,
+    pub tendermint_clients: HashMap<ClientId, TendermintClient>,
+    pub client_ids_counter: u64,
+    pub conn_store: ConnectionStore,
+    pub chan_store: ChannelStore,
 }
 
 impl MessageVerifier {
     pub fn new() -> Self {
         MessageVerifier {
             tendermint_clients: HashMap::new(),
-            client_ids_counter: 1u64,
+            client_ids_counter: 0u64,
             conn_store: ConnectionStore::new(),
             chan_store: ChannelStore::new(),
         }
@@ -264,7 +265,7 @@ impl MessageVerifier {
         &mut self,
         msg: MsgConnectionOpenTry,
         // conn_end: ConnectionEnd,
-    ) -> Result<(ClientId, ConnectionId, ConnectionEnd), String> {
+    ) -> Result<(ClientId, ConnectionId, ConnectionEnd, u64), String> {
         // verify
         let conn_id_on_b = ConnectionId::new(
             self.conn_store
@@ -306,6 +307,8 @@ impl MessageVerifier {
         let consensus_state_of_a_on_b =
             self.client_consensus_state(&msg.client_id_on_b, &msg.proofs_height_on_a)?;
         ic_cdk::println!(" 4-2++++++++++++++++++++++++++++++++++++++++++++++++ ");
+
+        let time: u64 = consensus_state_of_a_on_b.timestamp().nanoseconds();
 
         let expected_conn_end_on_a: ConnectionEnd;
         // Verify proofs
@@ -360,13 +363,14 @@ impl MessageVerifier {
             client_id_on_a.clone(),
             conn_id_on_a.clone(),
             expected_conn_end_on_a,
+            time,
         ))
     }
 
     pub fn conn_open_ack(
         &mut self,
         msg: MsgConnectionOpenAck,
-    ) -> Result<(ClientId, ConnectionId, ConnectionEnd), String> {
+    ) -> Result<(ClientId, ConnectionId, ConnectionEnd, u64), String> {
         let conn_end_on_a = self.connection_end(&msg.conn_id_on_a)?;
         if !(conn_end_on_a.state_matches(&State::Init)
             && conn_end_on_a.versions().contains(&msg.version))
@@ -383,6 +387,7 @@ impl MessageVerifier {
         let client_state_of_b_on_a = self.client_state(client_id_on_a)?;
         let consensus_state_of_b_on_a =
             self.client_consensus_state(conn_end_on_a.client_id(), &msg.proofs_height_on_b)?;
+        let time: u64 = consensus_state_of_b_on_a.timestamp().nanoseconds();
 
         let expected_conn_end_on_b: ConnectionEnd;
         // Proof verification.
@@ -446,13 +451,14 @@ impl MessageVerifier {
             client_id_on_b.clone(),
             msg.conn_id_on_b.clone(),
             expected_conn_end_on_b,
+            time,
         ))
     }
 
     pub fn conn_open_confirm(
         &mut self,
         msg: MsgConnectionOpenConfirm,
-    ) -> Result<(ClientId, ConnectionId, ConnectionEnd), String> {
+    ) -> Result<(ClientId, ConnectionId, ConnectionEnd, u64), String> {
         let conn_end_on_b = self.connection_end(&msg.conn_id_on_b)?;
         if !conn_end_on_b.state_matches(&State::TryOpen) {
             return Err(ConnectionError::ConnectionMismatch {
@@ -468,10 +474,11 @@ impl MessageVerifier {
             .ok_or("ConnectionError::InvalidCounterparty".to_string())?;
 
         // Verify proofs
-        let expected_conn_end_on_a = {
+        let (expected_conn_end_on_a, time) = {
             let client_state_of_a_on_b = self.client_state(client_id_on_b)?;
             let consensus_state_of_a_on_b =
                 self.client_consensus_state(client_id_on_b, &msg.proof_height_on_a)?;
+            let time: u64 = consensus_state_of_a_on_b.timestamp().nanoseconds();
 
             let prefix_on_a = conn_end_on_b.counterparty().prefix();
             let prefix_on_b = self.commitment_prefix();
@@ -498,7 +505,7 @@ impl MessageVerifier {
                     &expected_conn_end_on_a,
                 )
                 .map_err(|e| e.to_string())?;
-            expected_conn_end_on_a
+            (expected_conn_end_on_a, time)
         };
 
         // store
@@ -515,6 +522,7 @@ impl MessageVerifier {
             client_id_on_a.clone(),
             conn_id_on_a.clone(),
             expected_conn_end_on_a,
+            time,
         ))
     }
 
@@ -591,7 +599,7 @@ impl MessageVerifier {
     pub fn chan_open_try(
         &mut self,
         msg: &MsgChannelOpenTry,
-    ) -> Result<(PortId, ChannelId, ChannelEnd), String> {
+    ) -> Result<(PortId, ChannelId, ChannelEnd, u64), String> {
         // An IBC connection running on the local (host) chain should exist.
         if msg.connection_hops_on_b.len() != 1 {
             return Err(ChannelError::InvalidConnectionHopsLength {
@@ -620,11 +628,12 @@ impl MessageVerifier {
         }
 
         // Verify proofs
-        let expected_chan_end_on_a = {
+        let (expected_chan_end_on_a, time) = {
             let client_id_on_b = conn_end_on_b.client_id();
             let client_state_of_a_on_b = self.client_state(client_id_on_b)?;
             let consensus_state_of_a_on_b =
                 self.client_consensus_state(client_id_on_b, &msg.proof_height_on_a)?;
+            let time: u64 = consensus_state_of_a_on_b.timestamp().nanoseconds();
             let prefix_on_a = conn_end_on_b.counterparty().prefix();
             let port_id_on_a = &&msg.port_id_on_a;
             let chan_id_on_a = msg.chan_id_on_a.clone();
@@ -664,7 +673,7 @@ impl MessageVerifier {
                     &expected_chan_end_on_a,
                 )
                 .map_err(|e| ChannelError::VerifyChannelFailed(e).to_string())?;
-            expected_chan_end_on_a
+            (expected_chan_end_on_a, time)
         };
 
         let chan_end_on_b = ChannelEnd::new(
@@ -673,7 +682,8 @@ impl MessageVerifier {
             ChCounterparty::new(msg.port_id_on_a.clone(), Some(msg.chan_id_on_a.clone())),
             msg.connection_hops_on_b.clone(),
             // Note: This will be rewritten by the module callback
-            Version::empty(),
+            // Version::empty(),
+            Version::new(VERSION.to_string()),
         );
 
         let chan_id_on_b = ChannelId::new(
@@ -701,13 +711,14 @@ impl MessageVerifier {
             msg.port_id_on_a.clone(),
             msg.chan_id_on_a.clone(),
             expected_chan_end_on_a,
+            time,
         ))
     }
 
     pub fn chan_open_ack(
         &mut self,
         msg: &MsgChannelOpenAck,
-    ) -> Result<(PortId, ChannelId, ChannelEnd), String> {
+    ) -> Result<(PortId, ChannelId, ChannelEnd, u64), String> {
         let chan_end_on_a = self
             .chan_store
             .channel_end(&msg.port_id_on_a, &msg.chan_id_on_a)
@@ -742,11 +753,12 @@ impl MessageVerifier {
         }
 
         // Verify proofs
-        let expected_chan_end_on_b = {
+        let (expected_chan_end_on_b, time) = {
             let client_id_on_a = conn_end_on_a.client_id();
             let client_state_of_b_on_a = self.client_state(client_id_on_a)?;
             let consensus_state_of_b_on_a =
                 self.client_consensus_state(client_id_on_a, &msg.proof_height_on_b)?;
+            let time: u64 = consensus_state_of_b_on_a.timestamp().nanoseconds();
             let prefix_on_b = conn_end_on_a.counterparty().prefix();
             let port_id_on_b = &chan_end_on_a.counterparty().port_id;
             let conn_id_on_b = conn_end_on_a.counterparty().connection_id().ok_or(
@@ -787,7 +799,7 @@ impl MessageVerifier {
                     &expected_chan_end_on_b,
                 )
                 .map_err(|e| ChannelError::VerifyChannelFailed(e).to_string())?;
-            expected_chan_end_on_b
+            (expected_chan_end_on_b, time)
         };
 
         // Transition the channel end to the new state & pick a version.
@@ -820,13 +832,14 @@ impl MessageVerifier {
             chan_end_on_a.counterparty().port_id.clone(),
             msg.chan_id_on_b.clone(),
             expected_chan_end_on_b,
+            time,
         ))
     }
 
     pub fn chan_open_confirm(
         &mut self,
         msg: &MsgChannelOpenConfirm,
-    ) -> Result<(PortId, ChannelId, ChannelEnd), String> {
+    ) -> Result<(PortId, ChannelId, ChannelEnd, u64), String> {
         let mut chan_end_on_b = self
             .chan_store
             .channel_end(&msg.port_id_on_b, &msg.chan_id_on_b)
@@ -864,11 +877,12 @@ impl MessageVerifier {
 
         ic_cdk::println!("open confirm ++++++++++++++++++++++++ 4");
         // Verify proofs
-        let (port_id_on_a, chan_id_on_a, expected_chan_end_on_a) = {
+        let (port_id_on_a, chan_id_on_a, expected_chan_end_on_a, time) = {
             let client_id_on_b = conn_end_on_b.client_id();
             let client_state_of_a_on_b = self.client_state(client_id_on_b)?;
             let consensus_state_of_a_on_b =
                 self.client_consensus_state(client_id_on_b, &msg.proof_height_on_a)?;
+            let time: u64 = consensus_state_of_a_on_b.timestamp().nanoseconds();
             let prefix_on_a = conn_end_on_b.counterparty().prefix();
             let port_id_on_a = &chan_end_on_b.counterparty().port_id;
             let chan_id_on_a = chan_end_on_b
@@ -919,6 +933,7 @@ impl MessageVerifier {
                 port_id_on_a.clone(),
                 chan_id_on_a.clone(),
                 expected_chan_end_on_a,
+                time,
             )
         };
 
@@ -940,7 +955,7 @@ impl MessageVerifier {
             .to_string()
         })?;
 
-        Ok((port_id_on_a, chan_id_on_a, expected_chan_end_on_a))
+        Ok((port_id_on_a, chan_id_on_a, expected_chan_end_on_a, time))
     }
 
     pub fn chan_close_init(&mut self, msg: &MsgChannelCloseInit) -> Result<(), String> {
@@ -1005,7 +1020,7 @@ impl MessageVerifier {
     pub fn recv_packet(
         &mut self,
         msg: &MsgRecvPacket,
-    ) -> Result<(PortId, ChannelId, Vec<u8>), String> {
+    ) -> Result<(PortId, ChannelId, Vec<u8>, u64), String> {
         let chan_end_on_b = self
             .chan_store
             .channel_end(&msg.packet.port_on_b, &msg.packet.chan_on_b)
@@ -1057,7 +1072,7 @@ impl MessageVerifier {
         // }
 
         // Verify proofs
-        let expected_commitment_on_a = {
+        let (expected_commitment_on_a, time) = {
             let client_id_on_b = conn_end_on_b.client_id();
             let client_state_of_a_on_b = self.client_state(client_id_on_b)?;
 
@@ -1071,6 +1086,7 @@ impl MessageVerifier {
 
             let consensus_state_of_a_on_b =
                 self.client_consensus_state(client_id_on_b, &msg.proof_height_on_a)?;
+            let time: u64 = consensus_state_of_a_on_b.timestamp().nanoseconds();
 
             let expected_commitment_on_a = self.chan_store.packet_commitment(
                 &msg.packet.data,
@@ -1095,7 +1111,7 @@ impl MessageVerifier {
                     client_error: e,
                 })
                 .map_err(|e| PacketError::Channel(e).to_string())?;
-            expected_commitment_on_a
+            (expected_commitment_on_a, time)
         };
 
         let result = if chan_end_on_b.order_matches(&Order::Ordered) {
@@ -1153,6 +1169,7 @@ impl MessageVerifier {
             msg.packet.port_on_a.clone(),
             msg.packet.chan_on_a.clone(),
             expected_commitment_on_a.into_vec(),
+            time,
         ))
     }
 
@@ -1160,12 +1177,13 @@ impl MessageVerifier {
     pub fn acknowledgement(
         &mut self,
         msg: &MsgAcknowledgement,
-    ) -> Result<(PortId, ChannelId, Vec<u8>), String> {
+    ) -> Result<(PortId, ChannelId, Vec<u8>, u64), String> {
         let packet = &msg.packet;
         let chan_end_on_a = self
             .chan_store
             .channel_end(&packet.port_on_a, &packet.chan_on_a)
             .map_err(|e| PacketError::Channel(e).to_string())?;
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 1");
 
         if !chan_end_on_a.state_matches(&ChState::Open) {
             return Err(PacketError::ChannelClosed {
@@ -1173,6 +1191,7 @@ impl MessageVerifier {
             }
             .to_string());
         }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2");
 
         let counterparty =
             ChCounterparty::new(packet.port_on_b.clone(), Some(packet.chan_on_b.clone()));
@@ -1184,9 +1203,12 @@ impl MessageVerifier {
             }
             .to_string());
         }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2-1");
 
         let conn_id_on_a = &chan_end_on_a.connection_hops()[0];
+        ic_cdk::println!("ack conn_id: {:?}", conn_id_on_a);
         let conn_end_on_a = self.connection_end(conn_id_on_a)?;
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2-2");
 
         if !conn_end_on_a.state_matches(&ConnectionState::Open) {
             return Err(PacketError::ConnectionNotOpen {
@@ -1194,28 +1216,37 @@ impl MessageVerifier {
             }
             .to_string());
         }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 2-3");
+        ic_cdk::println!(
+            "port_id: {:?}, chan_id: {:?}, sequence: {:?}",
+            packet.port_on_a,
+            packet.chan_on_a,
+            packet.sequence
+        );
 
-        // Verify packet commitment
-        let packet_commitment = self
-            .chan_store
-            .get_packet_commitment(&packet.port_on_a, &packet.chan_on_a, &packet.sequence)
-            .map_err(|e| e.to_string())?;
+        // // Verify packet commitment
+        // let packet_commitment = self
+        //     .chan_store
+        //     .get_packet_commitment(&packet.port_on_a, &packet.chan_on_a, &packet.sequence)
+        //     .map_err(|e| e.to_string())?;
 
-        if packet_commitment
-            != self.chan_store.packet_commitment(
-                &packet.data,
-                &packet.timeout_height_on_b,
-                &packet.timeout_timestamp_on_b,
-            )
-        {
-            return Err(PacketError::IncorrectPacketCommitment {
-                sequence: packet.sequence,
-            }
-            .to_string());
-        }
+        //     ic_cdk::println!("ack ++++++++++++++++++++++++ 3");
+        // if packet_commitment
+        //     != self.chan_store.packet_commitment(
+        //         &packet.data,
+        //         &packet.timeout_height_on_b,
+        //         &packet.timeout_timestamp_on_b,
+        //     )
+        // {
+        //     return Err(PacketError::IncorrectPacketCommitment {
+        //         sequence: packet.sequence,
+        //     }
+        //     .to_string());
+        // }
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 4");
 
         // Verify proofs
-        let ack_commitment = {
+        let (ack_commitment, time) = {
             let client_id_on_a = conn_end_on_a.client_id();
             let client_state_on_a = self.client_state(client_id_on_a)?;
 
@@ -1226,9 +1257,11 @@ impl MessageVerifier {
                 }
                 .to_string());
             }
+            ic_cdk::println!("ack ++++++++++++++++++++++++ 5");
 
             let consensus_state =
                 self.client_consensus_state(client_id_on_a, &msg.proof_height_on_b)?;
+            let time: u64 = consensus_state.timestamp().nanoseconds();
 
             let ack_commitment = self.chan_store.ack_commitment(&msg.acknowledgement);
 
@@ -1249,8 +1282,9 @@ impl MessageVerifier {
                     client_error: e,
                 })
                 .map_err(|e| PacketError::Channel(e).to_string())?;
-            ack_commitment
+            (ack_commitment, time)
         };
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 6");
 
         let result = if chan_end_on_a.order_matches(&Order::Ordered) {
             let next_seq_ack = self
@@ -1281,6 +1315,7 @@ impl MessageVerifier {
             })
         };
 
+        ic_cdk::println!("ack ++++++++++++++++++++++++ 7");
         // store
         self.chan_store
             .store_packet_result(result)
@@ -1290,6 +1325,7 @@ impl MessageVerifier {
             packet.port_on_b.clone(),
             packet.chan_on_b.clone(),
             ack_commitment.into_vec(),
+            time,
         ))
     }
 

@@ -30,6 +30,9 @@ displaydoc = { version = "0.2", default-features = false }
 [dev-dependencies]
 tendermint-testgen = { version = "0.28.0", default-features = false }
 
+# [profile.release]
+# opt-level = 's'
+
 [features]
 default = ["std"]
 std = [

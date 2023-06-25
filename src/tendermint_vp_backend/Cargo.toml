@@ -22,3 +22,6 @@ tendermint_client = { path = "../tendermint_client", default-features = false }
 ibc-proto = { version = "0.25.0", default-features = false }
 ibc = { version = "0.28.0", default-features = false, features = ["serde"]}
 prost = { version = "0.11", default-features = false }
+
+hashbrown = "0.13.2"
+ic-stable-structures = "0.5.4"

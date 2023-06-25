@@ -13,7 +13,7 @@ type Proofs = record {
 };
 
 service : {
-  public_key : () -> (variant { Ok: record { public_key_hex: text; }; Err: text });
+  public_key : () -> (variant { Ok: vec nat8; Err: text });
   sign : (vec nat8) -> (variant { Ok: record { signature_hex: text; }; Err: text });
   verify : (text, text, text) -> (variant { Ok: record { is_signature_valid: bool; }; Err: text });
 
@@ -37,6 +37,8 @@ service : {
   recv_packet: (vec nat8) -> (variant { Ok: Proofs; Err: text });
   ack_packet: (vec nat8) -> (variant { Ok: Proofs; Err: text });
 
-  test0: () -> (variant { Ok: null; Err: text });
-  test1: () -> (variant { Ok: Proofs; Err: text });
+  get_sequence_times: (nat64) -> (variant { Ok: nat64; Err: text });
+
+  test2: () -> (variant { Ok: null; Err: text });
+  test3: () -> (variant { Ok: null; Err: text });
 }
